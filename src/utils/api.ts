@@ -147,8 +147,12 @@ export class ObsUtilsApi {
 	 * so any number of overlay renderers can react without tight coupling.
 	 */
 	fireOverlayTrigger(key: string, payload: Record<string, any>) {
+		const nextPayload = {
+			...payload,
+			obsUtilsTriggerSequence: Date.now(),
+		};
 		// Cast required — fvtt-types only knows built-in hook names.
-		(Hooks.callAll as (hook: string, ...args: any[]) => boolean)('obs-utils.overlayTrigger', key, payload);
+		(Hooks.callAll as (hook: string, ...args: any[]) => boolean)('obs-utils.overlayTrigger', key, nextPayload);
 	}
 
 	/**

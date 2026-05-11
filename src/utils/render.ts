@@ -136,7 +136,7 @@ const RESOLVERS: Record<string, ResolveFn> = {
 		const value = resolved !== '' && resolved !== undefined
 			? String(resolved)
 			: (looksLikeDataPath(data ?? '') ? '' : (data ?? ''));
-		return { value };
+		return { value, obsUtilsTriggerSequence: payload?.obsUtilsTriggerSequence };
 	},
 
 	// data: path;trueIcon;falseIcon

@@ -114,6 +114,9 @@ describe('obsUtilsApi overlay triggers', () => {
 		const payload = { foo: 'bar' };
 		api.fireOverlayTrigger('core.onPlayerRoll', payload);
 
-		expect(callAll).toHaveBeenCalledWith('obs-utils.overlayTrigger', 'core.onPlayerRoll', payload);
+		expect(callAll).toHaveBeenCalledWith('obs-utils.overlayTrigger', 'core.onPlayerRoll', {
+			foo: 'bar',
+			obsUtilsTriggerSequence: expect.any(Number),
+		});
 	});
 });
