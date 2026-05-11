@@ -8,6 +8,7 @@
 	let { id = $bindable() } = $props();
 
 	let rollValue = $state('');
+	let rollSequence = $state(0);
 	const hook = Hooks.on('createChatMessage', (e) => {
 		const uid = e.author.id;
 		if (uid === id && e.whisper.length === 0 && e.isRoll) {
@@ -16,7 +17,7 @@
 					accumulator + Number.parseInt(currentValue.total),
 				0,
 			);
-			rollShow = true;
+			rollSequence += 1;
 		}
 	});
 
@@ -26,6 +27,7 @@
 </script>
 
 <PlayerRollComponent
+	rollSequence={rollSequence}
 	bind:rollValue={rollValue}
 	id={id}
 />

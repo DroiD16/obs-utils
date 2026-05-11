@@ -1,5 +1,6 @@
 <script lang='ts'>
 	import { fade } from 'svelte/transition';
+	import { getRollImageSource } from '../../../utils/rollOverlay.ts';
 	import { getPlayerRollStores } from '../../../utils/settings.ts';
 
 	const {
@@ -27,7 +28,7 @@
 	const postRollDelay = $derived(rollDelay + $rollStay + $rollFadeIn + $rollFadeOut);
 	const postRollDuration = $derived(postRollDelay + $postRollStay + $postRollFadeIn);
 
-	let { id = $bindable(), rollValue = $bindable('') } = $props();
+	let { id = $bindable(), rollSequence = 0, rollValue = $bindable('') } = $props();
 
 	let rollShow = $state(false);
 	let preRollShow = $state(false);
@@ -48,7 +49,7 @@
 		postRollShow = false;
 	}
 
-	function startSequence() {
+	function startSequence(_sequence = rollSequence) {
 		// Start fresh sequence using current settings
 		if (rollValue === '') return;
 
@@ -84,11 +85,16 @@
 		}
 	}
 
+	const preRollImageSource = $derived(getRollImageSource($preRollImage, rollSequence));
+	const rollBackgroundImageSource = $derived(getRollImageSource($rollBackgroundImage, rollSequence));
+	const rollForegroundImageSource = $derived(getRollImageSource($rollForegroundImage, rollSequence));
+	const postRollImageSource = $derived(getRollImageSource($postRollImage, rollSequence));
+
 	$effect(() => {
-		// On any change to rollValue, restart animation sequence
+		// On any change to rollValue or rollSequence, restart animation sequence
     // Skip transitions by immediately hiding everything, then restart timers
 		clearAll();
-		startSequence();
+		startSequence(rollSequence);
 	});
 </script>
 
@@ -99,7 +105,7 @@
 			out:fade={{ duration: $preRollFadeOut }}
 		>
 			<img
-				src={$preRollImage}
+				src={preRollImageSource}
 				alt='pre roll'
 			/>
 		</div>
@@ -112,7 +118,7 @@
 			{#if $rollBackgroundImage}
 				<img
 					class='background layer'
-					src={$rollBackgroundImage}
+					src={rollBackgroundImageSource}
 					alt='roll background'
 				/>
 			{/if}
@@ -120,7 +126,7 @@
 			{#if $rollForegroundImage}
 				<img
 					class='foreground layer'
-					src={$rollForegroundImage}
+					src={rollForegroundImageSource}
 					alt='roll foreground'
 				/>
 			{/if}
@@ -132,7 +138,7 @@
 			out:fade={{ duration: $postRollFadeOut }}
 		>
 			<img
-				src={$postRollImage}
+				src={postRollImageSource}
 				alt='post roll'
 			/>
 		</div>
