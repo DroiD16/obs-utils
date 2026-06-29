@@ -1,3 +1,11 @@
+## Version 5.2.0-rollimg
+
+Fork release based on upstream OBS Utils 5.2.0.
+
+### Fixed
+
+- Roll overlay images now get a per-trigger cache-busting URL parameter so repeated roll image animations restart reliably.
+
 ## Version 5.2.0
 
 ### Added
