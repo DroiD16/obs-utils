@@ -92,14 +92,33 @@ export interface DirectorTabRegistration {
 	order?: number;
 }
 
+/**
+ * Cross-bundle-safe Director tab. Instead of a component, you pass a `mount` callback that mounts the tab
+ * with *your own* module's Svelte `mount()`. A Svelte 5 component from another bundle cannot be mounted by
+ * OBS Utils' runtime — its runes resolve against your bundle's effect context, so OBS Utils mounting it
+ * throws `effect_orphan`. Letting your module mount it fixes that. (A Svelte 4 module can `new Component()`
+ * inside the same callback.)
+ */
+export interface DirectorTabSvelte5Registration {
+	key: string;
+	label: string;
+	icon?: string;
+	/**
+	 * Mount the tab UI into `target` (e.g. `mount(MyTab, { target, props })`) and return a cleanup
+	 *  function that tears it down (e.g. `() => unmount(app)`).
+	 */
+	mount: (target: HTMLElement, props: { disabled: boolean }) => (() => void);
+	order?: number;
+}
+
 export class ObsUtilsApi {
 	overlayTypes: Map<string, OverlayType>;
 	overlayTypeNames: Map<string, string>;
 	singleInstanceOverlays: Set<Component>;
-	singleInstanceOverlaysSvelte5: Set<Component>;
+	singleInstanceOverlaysSvelte5: Set<(target: HTMLElement) => (() => void)>;
 	obsRemoteEventTypes: Map<string, OBSRemoteEventTypeRegistration>;
 	overlayTriggers: Map<string, OverlayTriggerRegistration>;
-	directorTabs: Map<string, DirectorTabRegistration>;
+	directorTabs: Map<string, DirectorTabRegistration | DirectorTabSvelte5Registration>;
 
 	constructor() {
 		this.overlayTypes = new Map();
@@ -121,8 +140,18 @@ export class ObsUtilsApi {
 		this.overlayTriggers.set(reg.key, reg);
 	}
 
-	/** Public — modules call this to register a tab in the Director window. */
+	/**
+	 * Public — register a tab in the Director window.
+	 * @deprecated A Svelte 5 component from another module fails to mount here (`effect_orphan`). Use
+	 *   {@link registerDirectorTabSvelte5}, which lets your module mount its own UI. Still fine for
+	 *   OBS Utils' own (same-bundle) tabs.
+	 */
 	registerDirectorTab(reg: DirectorTabRegistration) {
+		this.directorTabs.set(reg.key, reg);
+	}
+
+	/** Public — register a Director tab whose UI your module mounts itself (cross-bundle-safe). */
+	registerDirectorTabSvelte5(reg: DirectorTabSvelte5Registration) {
 		this.directorTabs.set(reg.key, reg);
 	}
 
@@ -209,9 +238,13 @@ export class ObsUtilsApi {
 		this.singleInstanceOverlays.add(overlay);
 	}
 
-	// New Svelte 5 external component workflow
-	registerUniqueOverlaySvelte5(overlay: Component) {
-		this.singleInstanceOverlaysSvelte5.add(overlay);
+	/**
+	 * Register a unique overlay rendered once on the stream, for Svelte 5 modules. Pass a `mount` callback
+	 * that mounts your overlay into the given element with your own module's Svelte `mount()` and returns a
+	 * cleanup function — OBS Utils can't mount a Svelte 5 component from another bundle itself (effect_orphan).
+	 */
+	registerUniqueOverlaySvelte5(mount: (target: HTMLElement) => (() => void)) {
+		this.singleInstanceOverlaysSvelte5.add(mount);
 	}
 
 	getSelectedActors() {
@@ -339,46 +372,19 @@ export class OverlayType {
 
 export function registerDefaultTypes() {
 	const singleLineOverlay = new OverlayType(SingleLineOverlay);
-	singleLineOverlay.registerComponent(
-		'pt',
-		'obs-utils.overlays.plainText.name',
-		ActorValComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'fai',
-		'obs-utils.overlays.fontAwesomeIcon.name',
-		FAIconComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'bav',
-		'obs-utils.overlays.booleanAVIcon.name',
-		AVBoolIconComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'bavimg',
-		'obs-utils.overlays.booleanAVImage.name',
-		AVBoolImageComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'img',
-		'obs-utils.overlays.image.name',
-		AVImageDisplayComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'micoav',
-		'obs-utils.overlays.multiIconAV.name',
-		AVMultiIconComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'mimgav',
-		'obs-utils.overlays.multiImageAV.name',
-		AVMultiImageComponent,
-	);
-	singleLineOverlay.registerComponent(
-		'pb',
-		'obs-utils.overlays.progressBar.name',
-		ProgressBarComponent,
-	);
+	const builtinComponents: Array<[key: string, nameKey: string, component: Component<any>]> = [
+		['pt', 'obs-utils.overlays.plainText.name', ActorValComponent],
+		['fai', 'obs-utils.overlays.fontAwesomeIcon.name', FAIconComponent],
+		['bav', 'obs-utils.overlays.booleanAVIcon.name', AVBoolIconComponent],
+		['bavimg', 'obs-utils.overlays.booleanAVImage.name', AVBoolImageComponent],
+		['img', 'obs-utils.overlays.image.name', AVImageDisplayComponent],
+		['micoav', 'obs-utils.overlays.multiIconAV.name', AVMultiIconComponent],
+		['mimgav', 'obs-utils.overlays.multiImageAV.name', AVMultiImageComponent],
+		['pb', 'obs-utils.overlays.progressBar.name', ProgressBarComponent],
+	];
+	for (const [key, nameKey, component] of builtinComponents) {
+		singleLineOverlay.registerComponent(key, nameKey, component);
+	}
 
 	// img: data IS the path
 	singleLineOverlay.registerComponentImageSlots('img', {
@@ -415,15 +421,15 @@ export function registerDefaultTypes() {
 	});
 
 	// Register Legacy Names
-	singleLineOverlay.overlayComponents.set('Plain Text', ActorValComponent);
-	singleLineOverlay.overlayComponents.set('Font Awesome Icon', FAIconComponent);
-	singleLineOverlay.overlayComponents.set('Actor Value', ActorValComponent);
-	singleLineOverlay.overlayComponents.set(
-		'Boolean Actor Value',
-		AVBoolIconComponent,
-	);
-	singleLineOverlay.overlayComponents.set('iav', AVImageDisplayComponent);
-	singleLineOverlay.overlayComponents.set('av', ActorValComponent);
+	const legacyNames: Array<[name: string, component: Component<any>]> = [
+		['Plain Text', ActorValComponent],
+		['Font Awesome Icon', FAIconComponent],
+		['Actor Value', ActorValComponent],
+		['Boolean Actor Value', AVBoolIconComponent],
+		['iav', AVImageDisplayComponent],
+		['av', ActorValComponent],
+	];
+	for (const [name, component] of legacyNames) singleLineOverlay.overlayComponents.set(name, component);
 
 	getApi().registerOverlayType('sl', 'obs-utils.overlays.simpleOverlay.name', singleLineOverlay);
 	getApi().overlayTypes.set('Single Line', singleLineOverlay);
@@ -449,28 +455,13 @@ async function registerBuiltinDirectorTabs() {
 		import('../svelte/components/director/PresetsTab.svelte'),
 		import('../svelte/components/director/CoDMsTab.svelte'),
 	]);
+	const builtinTabs: DirectorTabRegistration[] = [
+		{ key: 'core.controls', label: 'obs-utils.applications.director.tabControls', icon: 'fas fa-video', component: ControlsTab, order: 10 },
+		{ key: 'core.presets', label: 'obs-utils.applications.director.tabPresets', icon: 'fas fa-bookmark', component: PresetsTab, order: 20 },
+		{ key: 'core.codms', label: 'obs-utils.applications.director.tabCoDMs', icon: 'fas fa-users', component: CoDMsTab, order: 30 },
+	];
 	const api = getApi();
-	api.registerDirectorTab({
-		key: 'core.controls',
-		label: 'obs-utils.applications.director.tabControls',
-		icon: 'fas fa-video',
-		component: ControlsTab,
-		order: 10,
-	});
-	api.registerDirectorTab({
-		key: 'core.presets',
-		label: 'obs-utils.applications.director.tabPresets',
-		icon: 'fas fa-bookmark',
-		component: PresetsTab,
-		order: 20,
-	});
-	api.registerDirectorTab({
-		key: 'core.codms',
-		label: 'obs-utils.applications.director.tabCoDMs',
-		icon: 'fas fa-users',
-		component: CoDMsTab,
-		order: 30,
-	});
+	for (const tab of builtinTabs) api.registerDirectorTab(tab);
 }
 
 function registerBuiltinOverlayTriggers() {
