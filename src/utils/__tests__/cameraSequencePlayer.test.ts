@@ -34,11 +34,15 @@ const mockTimeline = {
 vi.mock('../gsap.ts', async () => {
 	const actual = await vi.importActual<typeof import('../gsap.ts')>('../gsap.ts');
 	return {
-		default: { timeline: vi.fn(() => mockTimeline) },
+		default: {},
 		// Use the real cubicBezier — it's a pure function with no GSAP dep.
 		cubicBezier: actual.cubicBezier,
 	};
 });
+
+vi.mock('gsap', () => ({
+	default: { timeline: vi.fn(() => mockTimeline) },
+}));
 
 // ─── toGsapEase ───────────────────────────────────────────────────────────────
 

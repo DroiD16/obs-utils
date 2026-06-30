@@ -1,3 +1,9 @@
+## Version 5.2.0-rollimg.1
+
+### Fixed
+
+- Temporarily restore the bundled GSAP runtime import for camera keyframe playback and remove the `globalThis.gsap` load-time check. Upstream currently assumes Foundry exposes that global, but it is not available during Foundry V14 module loading.
+
 ## Version 5.2.0-rollimg
 
 Fork release based on upstream OBS Utils 5.2.0.
