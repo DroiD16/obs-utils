@@ -1287,20 +1287,25 @@ test.describe('Trigger queue', () => {
 	});
 
 	test('a queued roll shortens the idle hold', async ({ pages: { obsPage } }) => {
+		// Text alone is not enough: at the end of A's hide the tile falls back to
+		// the newest global payload, so '42' appears while the plate is invisible.
+		// Anchor on the plate's own opacity, as in the test above.
 		const elapsed = await obsPage.evaluate(async () => {
+			const row = '[data-overlay-row-id="test-roll-queue"]';
 			const first = { actor: { name: 'Hero' }, total: 41, formula: '1d20', flavor: 'First' };
 			const second = { actor: { name: 'Ranger' }, total: 42, formula: '1d20', flavor: 'Second' };
 			// @ts-expect-error run in plain js
 			const api = game.modules.get('obs-utils').api;
-			const shows = (needle: string) =>
-				(document.querySelector('[data-overlay-row-id="test-roll-queue"] .overlay-tile')?.textContent ?? '').includes(needle);
 
 			const started = performance.now();
 			api.fireOverlayTrigger('core.onPlayerRoll', first);
 			api.fireOverlayTrigger('core.onPlayerRoll', second);
 			return await new Promise<number>((resolve) => {
 				const check = () => {
-					if (shows('42')) resolve(performance.now() - started);
+					const plate = document.querySelector(`${row} [data-component-id="rq-total"]`);
+					const text = document.querySelector(`${row} .overlay-tile`)?.textContent ?? '';
+					const opacity = plate ? Number.parseFloat(getComputedStyle(plate).opacity) : 0;
+					if (opacity > 0.9 && text.includes('42')) resolve(performance.now() - started);
 					else if (performance.now() - started > 5000) resolve(-1);
 					else requestAnimationFrame(check);
 				};
@@ -1308,10 +1313,13 @@ test.describe('Trigger queue', () => {
 			});
 		});
 
-		// show 200 + queued idle 300 + hide 200 ≈ 700ms. Without the shortened
-		// idle the full 1000ms hold would push this past 1400ms.
-		expect(elapsed).toBeGreaterThan(0);
-		expect(elapsed).toBeLessThan(1300);
+		// Fixture timings: show 200 (opacity ramps 0 → 1), idle 1000 shortened to
+		// queueIdleMs 300, hide 200. B therefore reaches full opacity at about
+		// 200 + 300 + 200 + 180 ≈ 880ms; with the hold not shortened it would be
+		// 200 + 1000 + 200 + 180 ≈ 1580ms, and a B that simply replaced A on the
+		// plate would land at ≈ 180ms. 600..1250 keeps ~350ms of slack each way.
+		expect(elapsed).toBeGreaterThan(600);
+		expect(elapsed).toBeLessThan(1250);
 	});
 
 	test('the roll flavor is rendered on the plate', async ({ pages: { obsPage } }) => {

@@ -214,9 +214,9 @@ export class PlaybackEngine {
 	 */
 	private onTrackEntered(state: TileState, now: number): void {
 		if (!isQueueActive(state)) return;
-		// Guard, not bookkeeping: keeps the idle hold intact for the degenerate
-		// config where the idle track is also the initial track.
-		if (state.currentTrackId === state.overlay.queue?.idleTrackId) return;
+		// The initial track is the only place a queued trigger can be released
+		// from, including the degenerate config where it doubles as the idle
+		// track — there entering it frees the slot, so the head goes out at once.
 		if (state.currentTrackId !== state.overlay.animation?.initialTrackId) return;
 		state.activePayload = undefined;
 		// The show is over — nothing about the finished trigger should linger.
@@ -345,6 +345,9 @@ function leadsBackToInitialTrack(state: TileState, idle: OverlayTrack): boolean 
  * `mountTile` runs for every tile on every frame, so this must not re-serialize
  * the animation each time. An object mutated in place keeps its cached
  * signature — exactly the behaviour of the object-identity check it replaces.
+ * The Composer preview edits its overlay in place on the same client, so config
+ * changes do not restart the preview tile; only a settings round-trip, which
+ * rebuilds every `OverlayData`, produces a fresh object and remounts it.
  */
 const signatureCache = new WeakMap<OverlayData, string>();
 
