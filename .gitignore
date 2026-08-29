@@ -153,3 +153,4 @@ reviews/
 
 # Claude Code local state (settings + ephemeral worktree gitlinks)
 .claude/
+.local/

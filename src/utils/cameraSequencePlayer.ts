@@ -1,7 +1,9 @@
 import type { CameraPreset } from './cameraPresets.ts';
+import gsap from 'gsap';
 import { toGsapEase } from './cameraPresets.ts';
 import { clampAndApplyExternal } from './canvas.ts';
-import gsap from './gsap.ts';
+// Temporary fork patch: upstream currently assumes Foundry exposes
+// `globalThis.gsap`, but Foundry V14 module loading does not provide it here.
 
 export interface SequenceController {
 	/** Stop and dispose. Idempotent. */

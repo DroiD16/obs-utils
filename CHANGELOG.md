@@ -1,3 +1,11 @@
+## Version 5.3.0-roll-queue.1
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Fixed
+
+- Bundle GSAP for camera keyframe playback: Foundry V14 does not expose `globalThis.gsap` during module load.
+
 ## 5.3.1
 
 ### Fixed
