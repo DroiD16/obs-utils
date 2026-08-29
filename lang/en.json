@@ -307,7 +307,8 @@
 					"idleTrackNone": "This layer has no track that transitions on end, so the queue stays inactive.",
 					"queuedIdleMs": "Queued idle (ms)",
 					"hint": "Normal idle hold is the idle track’s duration ({ms} ms); while triggers are queued it is shortened to this value.",
-					"invalidTrack": "The selected idle track is gone or no longer transitions on end, so the queue stays inactive."
+					"invalidTrack": "The selected idle track is gone or no longer transitions on end, so the queue stays inactive.",
+					"chainNotReturning": "The idle track never hands back to the initial track, so the queue stays inactive."
 				},
 				"canvasWidth": "Canvas width (px)",
 				"canvasHeight": "Canvas height (px)",
