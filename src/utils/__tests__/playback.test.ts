@@ -168,3 +168,195 @@ describe('playbackEngine trigger payload snapshot', () => {
 		expect(h.frame()).toBeUndefined();
 	});
 });
+
+// ─── trigger queue ────────────────────────────────────────────────────────────
+
+const QUEUE_CONFIG = { enabled: true, idleTrackId: 'idle', queueIdleMs: 300 };
+
+function makeQueueOverlay(patch: Partial<OverlayData> = {}): OverlayData {
+	return makeOverlay({ queue: { ...QUEUE_CONFIG }, ...patch });
+}
+
+/** Runs `count` ticks of `ms` each and returns the track visited after each. */
+function runTicks(h: Harness, count: number, ms = 1, tileKey?: string): string[] {
+	const seen: string[] = [];
+	for (let i = 0; i < count; i++) {
+		advance(ms);
+		seen.push(h.frame(tileKey)?.activeTrackId ?? '');
+	}
+	return seen;
+}
+
+describe('playbackEngine trigger queue', () => {
+	it('shows the first trigger immediately', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+	});
+
+	it('defers a trigger fired during the show and keeps the first payload', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		advance(50);
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+	});
+
+	it('holds idle for the full track duration while the queue is empty', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		advance(200); // show → idle
+		expect(h.frame()?.activeTrackId).toBe('idle');
+		advance(999);
+		expect(h.frame()?.activeTrackId).toBe('idle');
+		advance(1);
+		expect(h.frame()?.activeTrackId).toBe('hide');
+	});
+
+	it('shortens the idle hold to queueIdleMs once something is queued', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		advance(200); // show → idle at t=200
+		advance(100);
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+		expect(h.frame()?.activeTrackId).toBe('idle');
+
+		advance(150); // idle held 250ms of the 300ms budget
+		expect(h.frame()?.activeTrackId).toBe('idle');
+		advance(60); // 310ms
+		expect(h.frame()?.activeTrackId).toBe('hide');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+	});
+
+	it('hides at once when the shortened idle budget is already spent', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		advance(200); // show → idle
+		advance(400); // 400ms of idle, past the 300ms queued budget
+
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+
+		expect(h.frame()?.activeTrackId).toBe('hide');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+	});
+
+	it('never interrupts a hide in progress', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		advance(200);
+		advance(1000); // idle → hide
+		expect(h.frame()?.activeTrackId).toBe('hide');
+
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+		expect(h.frame()?.activeTrackId).toBe('hide');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+
+		advance(199);
+		expect(h.frame()?.activeTrackId).toBe('hide');
+		advance(1);
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 2 });
+	});
+
+	it('replays three triggers strictly FIFO, one plate at a time', () => {
+		const h = mount(makeQueueOverlay());
+		const payloads = [
+			{ actor: { name: 'A' }, total: 1, formula: '1d20', flavor: 'first' },
+			{ actor: { name: 'B' }, total: 2, formula: '2d6', flavor: 'second' },
+			{ actor: { name: 'C' }, total: 3, formula: '1d4', flavor: 'third' },
+		];
+		for (const p of payloads) h.registry.fire('core.onPlayerRoll', p);
+
+		const order: unknown[] = [];
+		for (let i = 0; i < 4000; i++) {
+			advance(1);
+			const shown = h.frame()?.triggerPayload;
+			if (shown && order[order.length - 1] !== shown) order.push(shown);
+		}
+
+		expect(order).toEqual(payloads);
+		expect(h.frame()?.activeTrackId).toBe('hidden');
+		expect(h.frame()?.triggerPayload).toBeUndefined();
+	});
+
+	it('caps the queued idle at the track duration', () => {
+		const h = mount(makeQueueOverlay({ queue: { enabled: true, idleTrackId: 'idle', queueIdleMs: 5000 } }));
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		advance(200);
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+
+		advance(999);
+		expect(h.frame()?.activeTrackId).toBe('idle');
+		advance(1);
+		expect(h.frame()?.activeTrackId).toBe('hide');
+	});
+
+	it('does not stall or spin with zero-length tracks and a zero queued idle', () => {
+		const overlay = makeQueueOverlay({ queue: { enabled: true, idleTrackId: 'idle', queueIdleMs: 0 } });
+		for (const track of overlay.animation!.tracks) {
+			if (track.id !== 'hidden') track.durationMs = 0;
+		}
+		const h = mount(overlay);
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+
+		const visited = runTicks(h, 12);
+
+		expect(visited).toContain('hide');
+		expect(h.frame()?.activeTrackId).toBe('hidden');
+		expect(h.frame()?.triggerPayload).toBeUndefined();
+	});
+
+	it('falls back to un-queued behaviour when the config is off or invalid', () => {
+		for (const queue of [
+			{ enabled: false, idleTrackId: 'idle', queueIdleMs: 300 },
+			{ enabled: true, idleTrackId: 'nope', queueIdleMs: 300 },
+			{ enabled: true, idleTrackId: 'hidden', queueIdleMs: 300 }, // static, not transition-on-end
+		]) {
+			const h = mount(makeQueueOverlay({ queue }));
+			h.registry.fire('core.onPlayerRoll', { total: 1 });
+			advance(200); // show → idle
+			advance(999);
+			expect(h.frame()?.activeTrackId).toBe('idle');
+			advance(1);
+			expect(h.frame()?.activeTrackId).toBe('hide');
+		}
+	});
+
+	it('queues per tile — a roll only lands in its own player queue', () => {
+		const overlay = makeQueueOverlay({ tileBy: 'players' });
+		const h = mount(overlay, [userContext('u1'), userContext('u2')]);
+
+		h.registry.fire('core.onPlayerRoll', { user: { id: 'u1' }, total: 1 });
+		h.registry.fire('core.onPlayerRoll', { user: { id: 'u1' }, total: 2 });
+		h.registry.fire('core.onPlayerRoll', { user: { id: 'u2' }, total: 9 });
+
+		expect(h.frame('user:u1')?.triggerPayload).toEqual({ user: { id: 'u1' }, total: 1 });
+		expect(h.frame('user:u2')?.triggerPayload).toEqual({ user: { id: 'u2' }, total: 9 });
+
+		advance(200);
+		advance(1000);
+		advance(200); // u1: hide done → queued roll released, u2 has nothing queued
+		expect(h.frame('user:u1')?.triggerPayload).toEqual({ user: { id: 'u1' }, total: 2 });
+		expect(h.frame('user:u2')?.activeTrackId).toBe('hidden');
+		expect(h.frame('user:u2')?.triggerPayload).toBeUndefined();
+	});
+
+	it('drops the queue when the tile is unmounted or its overlay is replaced', () => {
+		const h = mount(makeQueueOverlay());
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+
+		h.engine.mountTile(makeQueueOverlay(), 'singleton', { key: 'singleton' });
+		expect(h.frame()?.activeTrackId).toBe('hidden');
+		expect(h.frame()?.triggerPayload).toBeUndefined();
+
+		runTicks(h, 5, 500);
+		expect(h.frame()?.activeTrackId).toBe('hidden');
+		expect(h.frame()?.triggerPayload).toBeUndefined();
+	});
+});

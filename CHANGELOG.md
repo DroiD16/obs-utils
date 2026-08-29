@@ -2,6 +2,10 @@
 
 Fork release based on upstream OBS Utils 5.3.0.
 
+### Added
+
+- Per-tile trigger queue for animated overlays. While a tile is showing, further triggers are held and replayed one at a time once it has hidden, so rolls are never lost or overwritten mid-animation. With something queued, the idle hold shortens to the configured queued-idle time.
+
 ### Fixed
 
 - Animated overlay tiles keep the payload of the trigger that opened them, so a later roll no longer swaps the text mid-animation. A trigger also only transitions the tiles its payload belongs to.
