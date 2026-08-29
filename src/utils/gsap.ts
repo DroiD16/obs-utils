@@ -1,15 +1,3 @@
-import type GSAPInstance from 'gsap';
-
-// Foundry ships GSAP at `globalThis.gsap`. We import the npm package for types
-// only — the actual runtime resolution always uses the host-provided global,
-// so the module never bundles its own GSAP copy. The `gsap` package therefore
-// lives in devDependencies, not dependencies.
-const g = (globalThis as { gsap?: typeof GSAPInstance }).gsap;
-if (!g) {
-	console.error('obs-utils: globalThis.gsap is not defined. Foundry should expose GSAP — animations will not work.');
-}
-export default g as typeof GSAPInstance;
-
 /**
  * Cubic-bezier ease for arbitrary (x1,y1,x2,y2) control points. Returned function
  * has the shape GSAP accepts as a custom `ease`. Replaces `gsap/CustomEase`,
