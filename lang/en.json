@@ -537,6 +537,7 @@
 						"roll": "Roll Object",
 						"total": "Roll Total",
 						"formula": "Roll Formula",
+						"flavor": "Roll Flavor",
 						"isCritical": "Is Critical (Nat 20)",
 						"isFumble": "Is Fumble (Nat 1)"
 					}
