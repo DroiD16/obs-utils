@@ -1,9 +1,16 @@
-import type { OverlayTrack, ZoneDestination } from './overlayAnimation.ts';
+import type { OverlayTrack, TrackTransition, TransitionZone, ZoneDestination } from './overlayAnimation.ts';
 import type { ComponentFrame, OverlayFrame, RenderContext } from './render.ts';
 import type { TriggerRegistry } from './triggers.ts';
 import type { OverlayData } from './types.ts';
 import { computeTrackFrame, findActiveZone } from './overlayAnimation.ts';
 import { payloadMatchesContext } from './render.ts';
+
+interface QueuedTrigger {
+	triggerKey: string;
+	payload: Record<string, unknown>;
+	/** The `goto` this trigger would have taken out of the initial track. */
+	destination: ZoneDestination;
+}
 
 interface TileState {
 	overlay: OverlayData;
@@ -15,6 +22,10 @@ interface TileState {
 	lastTriggerKey?: string;
 	/** Payload of the trigger that started the current show. */
 	activePayload?: Record<string, unknown>;
+	/** Triggers deferred while the tile was busy, replayed FIFO. */
+	queue: QueuedTrigger[];
+	/** `performance.now()` of the moment the tile entered the idle track. */
+	idleStartedAt?: number;
 }
 
 function stateKey(overlayId: string, tileKey: string): string {
@@ -63,6 +74,7 @@ export class PlaybackEngine {
 			context,
 			currentTrackId: overlay.animation.initialTrackId,
 			startWall: performance.now(),
+			queue: [],
 		};
 		this.states.set(key, state);
 		this.subscribeTransitions(overlay);
@@ -113,32 +125,110 @@ export class PlaybackEngine {
 		const now = performance.now();
 		for (const state of this.states.values()) {
 			if (!payloadMatchesContext(state.overlay, state.context, payload, this.previewMode())) continue;
-			const track = this.getTrack(state);
-			// Static tracks have no advancing playhead — pin to 0 so [0, x) zones match.
-			const playheadT = track?.behavior.type === 'static'
-				? 0
-				: Math.max(0, now - state.startWall);
-			const transitions = state.overlay.animation?.transitions ?? [];
-			for (const tr of transitions) {
-				if (tr.triggerKey !== key) continue;
-				if (tr.fromTrackId !== state.currentTrackId) continue;
-				let zone = findActiveZone(tr, playheadT);
-				// Static tracks: fall back to first zone when explicit matching fails.
-				if (!zone && track?.behavior.type === 'static') zone = tr.zones[0];
-				if (!zone) continue;
-				state.lastTriggerKey = key;
-				if (zone.destination.type !== 'ignore') state.activePayload = payload;
-				this.applyDestination(state, zone.destination, now);
+			const handled = this.applyMatchingTransitions(state, key, payload, now);
+			// Nothing to transition from the current track and the tile is mid-show:
+			// hold the trigger and replay it once the tile is free again.
+			if (!handled && isQueueActive(state) && isSlotBusy(state)) {
+				this.enqueueTrigger(state, key, payload ?? {}, now);
 			}
 		}
 		this.onFramesChanged();
 	}
 
+	/** Applies every transition leaving the current track. Returns whether any matched. */
+	private applyMatchingTransitions(
+		state: TileState,
+		key: string,
+		payload: Record<string, unknown> | undefined,
+		now: number,
+	): boolean {
+		const track = this.getTrack(state);
+		// Static tracks have no advancing playhead — pin to 0 so [0, x) zones match.
+		const playheadT = track?.behavior.type === 'static'
+			? 0
+			: Math.max(0, now - state.startWall);
+		let handled = false;
+		const transitions = state.overlay.animation?.transitions ?? [];
+		for (const tr of transitions) {
+			if (tr.triggerKey !== key) continue;
+			if (tr.fromTrackId !== state.currentTrackId) continue;
+			const zone = this.resolveZone(tr, playheadT, track);
+			if (!zone) continue;
+			handled = true;
+			state.lastTriggerKey = key;
+			if (zone.destination.type !== 'ignore') state.activePayload = payload;
+			this.applyDestination(state, zone.destination, now);
+		}
+		return handled;
+	}
+
+	private resolveZone(tr: TrackTransition, playheadT: number, track: OverlayTrack | undefined): TransitionZone | undefined {
+		const zone = findActiveZone(tr, playheadT);
+		// Static tracks: fall back to first zone when explicit matching fails.
+		if (!zone && track?.behavior.type === 'static') return tr.zones[0];
+		return zone;
+	}
+
+	/**
+	 * Queues the transition this trigger would have taken out of the initial
+	 * track. Anything else (no such transition, or an `ignore` zone) is dropped.
+	 */
+	private enqueueTrigger(state: TileState, key: string, payload: Record<string, unknown>, now: number): void {
+		const animation = state.overlay.animation;
+		if (!animation) return;
+		const initialTrack = animation.tracks.find(t => t.id === animation.initialTrackId);
+		for (const tr of animation.transitions) {
+			if (tr.triggerKey !== key) continue;
+			if (tr.fromTrackId !== animation.initialTrackId) continue;
+			const zone = this.resolveZone(tr, 0, initialTrack);
+			if (zone?.destination.type !== 'goto') continue;
+			state.queue.push({ triggerKey: key, payload, destination: zone.destination });
+			// A queued trigger shortens the idle hold, which may already be over.
+			if (state.currentTrackId === state.overlay.queue?.idleTrackId && idleElapsed(state, now) >= idleDeadlineMs(state)) {
+				this.enterHide(state, now);
+			}
+			return;
+		}
+	}
+
+	/** Leaves the idle track early, taking its `transition-on-end` destination. */
+	private enterHide(state: TileState, now: number): void {
+		const idle = idleTrack(state);
+		if (idle?.behavior.type !== 'transition-on-end') return;
+		this.gotoTrack(state, idle.behavior.toTrackId, idle.behavior.toTime, now);
+		this.computeFrame(state);
+	}
+
+	/**
+	 * Bookkeeping for every track change: remembers when the idle hold began and,
+	 * once the tile is back on the initial track, releases the next queued trigger.
+	 */
+	private onTrackEntered(state: TileState, now: number): void {
+		if (!isQueueActive(state)) return;
+		if (state.currentTrackId === state.overlay.queue?.idleTrackId) {
+			state.idleStartedAt = now;
+			return;
+		}
+		if (state.currentTrackId !== state.overlay.animation?.initialTrackId) return;
+		state.activePayload = undefined;
+		state.idleStartedAt = undefined;
+		const next = state.queue.shift();
+		if (!next) return;
+		state.activePayload = next.payload;
+		state.lastTriggerKey = next.triggerKey;
+		this.applyDestination(state, next.destination, now);
+	}
+
 	private applyDestination(state: TileState, dest: ZoneDestination, now: number): void {
 		if (dest.type === 'ignore') return;
-		state.currentTrackId = dest.toTrackId;
-		state.startWall = now - dest.toTime;
+		this.gotoTrack(state, dest.toTrackId, dest.toTime, now);
 		this.computeFrame(state);
+	}
+
+	private gotoTrack(state: TileState, toTrackId: string, toTime: number, now: number): void {
+		state.currentTrackId = toTrackId;
+		state.startWall = now - toTime;
+		this.onTrackEntered(state, now);
 	}
 
 	private scheduleTick(): void {
@@ -162,17 +252,20 @@ export class PlaybackEngine {
 		const track = this.getTrack(state);
 		if (!track) return;
 		if (track.behavior.type === 'static') return;
-		const playheadT = now - state.startWall;
-		if (track.durationMs <= 0) return;
-		if (playheadT < track.durationMs) return;
 		if (track.behavior.type === 'looping') {
+			if (track.durationMs <= 0) return;
+			const playheadT = now - state.startWall;
+			if (playheadT < track.durationMs) return;
 			state.startWall = now - (playheadT % track.durationMs);
 			return;
 		}
-		if (track.behavior.type === 'transition-on-end') {
-			state.currentTrackId = track.behavior.toTrackId;
-			state.startWall = now - track.behavior.toTime;
-		}
+		// A zero-length `transition-on-end` track hands over immediately instead of
+		// stalling. At most one hand-over per tick, so a zero-length cycle cannot spin.
+		const isIdle = isQueueActive(state) && track.id === state.overlay.queue?.idleTrackId;
+		const elapsed = isIdle ? idleElapsed(state, now) : now - state.startWall;
+		const deadline = isIdle ? idleDeadlineMs(state) : track.durationMs;
+		if (elapsed < deadline) return;
+		this.gotoTrack(state, track.behavior.toTrackId, track.behavior.toTime, now);
 	}
 
 	private computeFrame(state: TileState): OverlayFrame | undefined {
@@ -199,6 +292,38 @@ export class PlaybackEngine {
 	private getTrack(state: TileState): OverlayTrack | undefined {
 		return state.overlay.animation?.tracks.find(t => t.id === state.currentTrackId);
 	}
+}
+
+/** The track named by the queue config, if the overlay has one. */
+function idleTrack(state: TileState): OverlayTrack | undefined {
+	const id = state.overlay.queue?.idleTrackId;
+	if (!id) return undefined;
+	return state.overlay.animation?.tracks.find(t => t.id === id);
+}
+
+/**
+ * A queue only runs against a well-formed config. Anything else falls open —
+ * the tile behaves exactly as it would without a queue.
+ */
+function isQueueActive(state: TileState): boolean {
+	if (!state.overlay.queue?.enabled) return false;
+	return idleTrack(state)?.behavior.type === 'transition-on-end';
+}
+
+function isSlotBusy(state: TileState): boolean {
+	return state.currentTrackId !== state.overlay.animation?.initialTrackId;
+}
+
+function idleElapsed(state: TileState, now: number): number {
+	return now - (state.idleStartedAt ?? state.startWall);
+}
+
+/** A pending trigger shortens the idle hold; it never lengthens it. */
+function idleDeadlineMs(state: TileState): number {
+	const track = idleTrack(state);
+	if (!track) return Number.POSITIVE_INFINITY;
+	if (state.queue.length === 0) return track.durationMs;
+	return Math.min(track.durationMs, state.overlay.queue?.queueIdleMs ?? track.durationMs);
 }
 
 function framesEqual(a: OverlayFrame | undefined, b: OverlayFrame | undefined): boolean {
