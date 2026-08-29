@@ -479,6 +479,50 @@ describe('playbackEngine trigger queue', () => {
 		}
 	});
 
+	it('drains the queue when the idle track is also the initial track', () => {
+		// Degenerate but legal config: the tile rests on the idle track itself,
+		// so `hide` hands straight back to it. Entering it must still release the
+		// next queued trigger — there is no other track that could.
+		const overlay = makeQueueOverlay();
+		const animation = overlay.animation!;
+		animation.initialTrackId = 'idle';
+		animation.tracks.find(t => t.id === 'hide')!.behavior = {
+			type: 'transition-on-end',
+			toTrackId: 'idle',
+			toTime: 0,
+		};
+		animation.transitions[0].fromTrackId = 'idle';
+		const h = mount(overlay);
+
+		h.registry.fire('core.onPlayerRoll', { total: 1 });
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+
+		// Two more rolls while the plate is busy: both are held, neither shown.
+		advance(50);
+		h.registry.fire('core.onPlayerRoll', { total: 2 });
+		advance(50);
+		h.registry.fire('core.onPlayerRoll', { total: 3 });
+		expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+
+		// The show hands over to idle — which is the initial track, so the head of
+		// the queue is released at once rather than waiting out an idle hold.
+		advance(100);
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 2 });
+
+		// Strictly FIFO: the third roll never overtook the second.
+		advance(200);
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: 3 });
+
+		// Queue drained: the tile settles back on the initial track with no payload.
+		advance(200);
+		expect(h.frame()?.activeTrackId).toBe('idle');
+		expect(h.frame()?.triggerPayload).toBeUndefined();
+		expect(h.frame()?.triggerKey).toBeUndefined();
+	});
+
 	it('forgets the finished trigger once the tile is idle again', () => {
 		const h = mount(makeQueueOverlay());
 		h.registry.fire('core.onPlayerRoll', { total: 1 });
