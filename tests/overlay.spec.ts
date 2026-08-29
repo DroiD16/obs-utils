@@ -1231,21 +1231,59 @@ test.describe('Trigger queue', () => {
 		const tile = obsPage.locator(`${ROW} .overlay-tile`);
 		await expect(tile).toHaveCount(1);
 
-		await fireRoll(obsPage, roll('Hero', 41, 'First Strike'));
-		await fireRoll(obsPage, roll('Ranger', 42, 'Second Wind'));
+		// The whole show/idle/hide cycle takes ~700ms, far too short for a chain
+		// of round-tripped Playwright assertions. Sample the plate in-page and
+		// assert over the recorded timeline instead. Text alone would not do:
+		// once the plate is hidden the tile falls back to the newest payload, so
+		// every claim is anchored to the plate's computed opacity.
+		const samples = await obsPage.evaluate(async () => {
+			const row = '[data-overlay-row-id="test-roll-queue"]';
+			// @ts-expect-error run in plain js
+			const api = game.modules.get('obs-utils').api;
+			const mkRoll = (name: string, total: number, flavor: string) =>
+				({ actor: { name }, total, formula: '1d20', flavor, isCritical: false, isFumble: false });
 
-		// The plate is pinned to the first roll for its whole show.
-		await expect(tile).toContainText('41');
-		await expect(tile).toContainText('Hero');
-		await expect(tile).not.toContainText('42');
+			const started = performance.now();
+			api.fireOverlayTrigger('core.onPlayerRoll', mkRoll('Hero', 41, 'First Strike'));
+			api.fireOverlayTrigger('core.onPlayerRoll', mkRoll('Ranger', 42, 'Second Wind'));
+
+			const out: Array<{ t: number; opacity: number; first: boolean; second: boolean }> = [];
+			return await new Promise<typeof out>((resolve) => {
+				const step = () => {
+					const t = performance.now() - started;
+					const plate = document.querySelector(`${row} [data-component-id="rq-total"]`);
+					const tileEl = document.querySelector(`${row} .overlay-tile`);
+					if (plate && tileEl) {
+						const text = tileEl.textContent ?? '';
+						out.push({
+							t,
+							opacity: Number.parseFloat(getComputedStyle(plate).opacity),
+							first: text.includes('41'),
+							second: text.includes('42'),
+						});
+					}
+					if (t > 4000) resolve(out);
+					else requestAnimationFrame(step);
+				};
+				step();
+			});
+		});
+
+		// The first roll reaches full opacity showing its own total.
+		const shownFirst = samples.findIndex(s => s.opacity > 0.9 && s.first);
+		expect(shownFirst).toBeGreaterThanOrEqual(0);
+
+		// It then hides — the queued roll never cut into the visible plate.
+		const hidden = samples.findIndex((s, i) => i > shownFirst && s.opacity < 0.1);
+		expect(hidden).toBeGreaterThan(shownFirst);
+		expect(samples.slice(0, hidden).some(s => s.opacity > 0.5 && s.second)).toBe(false);
+
+		// And the tile shows again for the queued roll — B was held, not dropped.
+		const shownSecond = samples.findIndex((s, i) => i > hidden && s.opacity > 0.9 && s.second);
+		expect(shownSecond).toBeGreaterThan(hidden);
 
 		// Still exactly one plate — the queue never shows two at once.
 		await expect(tile).toHaveCount(1);
-
-		// The queued roll takes over once the first has hidden.
-		await expect(tile).toContainText('42');
-		await expect(tile).toContainText('Ranger');
-		await expect(tile).not.toContainText('41');
 	});
 
 	test('a queued roll shortens the idle hold', async ({ pages: { obsPage } }) => {
