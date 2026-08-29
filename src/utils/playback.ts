@@ -1,15 +1,20 @@
 import type { OverlayTrack, ZoneDestination } from './overlayAnimation.ts';
-import type { ComponentFrame, OverlayFrame } from './render.ts';
+import type { ComponentFrame, OverlayFrame, RenderContext } from './render.ts';
 import type { TriggerRegistry } from './triggers.ts';
 import type { OverlayData } from './types.ts';
 import { computeTrackFrame, findActiveZone } from './overlayAnimation.ts';
+import { payloadMatchesContext } from './render.ts';
 
 interface TileState {
 	overlay: OverlayData;
 	tileKey: string;
+	/** Needed to decide whether an incoming trigger payload belongs to this tile. */
+	context: RenderContext;
 	currentTrackId: string;
 	startWall: number;
 	lastTriggerKey?: string;
+	/** Payload of the trigger that started the current show. */
+	activePayload?: Record<string, unknown>;
 }
 
 function stateKey(overlayId: string, tileKey: string): string {
@@ -21,6 +26,7 @@ export class PlaybackEngine {
 	private readonly frames: Map<string, OverlayFrame>;
 	private readonly registry: TriggerRegistry;
 	private readonly onFramesChanged: () => void;
+	private readonly previewMode: () => boolean;
 	private readonly perTriggerUnsubs: Array<() => void> = [];
 
 	private rafId: number | null = null;
@@ -30,19 +36,31 @@ export class PlaybackEngine {
 		registry: TriggerRegistry,
 		frames: Map<string, OverlayFrame>,
 		onFramesChanged: () => void,
+		previewMode: () => boolean = () => false,
 	) {
 		this.registry = registry;
 		this.frames = frames;
 		this.onFramesChanged = onFramesChanged;
+		this.previewMode = previewMode;
 	}
 
-	mountTile(overlay: OverlayData, tileKey: string): void {
+	mountTile(overlay: OverlayData, tileKey: string, context: RenderContext): void {
 		if (!overlay.animation) return;
 		const key = stateKey(overlay.id ?? '', tileKey);
-		if (this.states.has(key)) return;
+		const existing = this.states.get(key);
+		// The store hands out a new object whenever the layer is edited — start
+		// the tile over rather than keep animating against a stale config.
+		if (existing) {
+			if (existing.overlay === overlay) {
+				existing.context = context;
+				return;
+			}
+			this.states.delete(key);
+		}
 		const state: TileState = {
 			overlay,
 			tileKey,
+			context,
 			currentTrackId: overlay.animation.initialTrackId,
 			startWall: performance.now(),
 		};
@@ -83,14 +101,18 @@ export class PlaybackEngine {
 			try {
 				this.registry.register({ key: tr.triggerKey });
 			} catch { /* already registered */ }
-			const unsub = this.registry.subscribe(tr.triggerKey, () => this.handleTriggerFire(tr.triggerKey));
+			const unsub = this.registry.subscribe<Record<string, unknown>>(
+				tr.triggerKey,
+				payload => this.handleTriggerFire(tr.triggerKey, payload),
+			);
 			this.perTriggerUnsubs.push(unsub);
 		}
 	}
 
-	private handleTriggerFire(key: string): void {
+	private handleTriggerFire(key: string, payload?: Record<string, unknown>): void {
 		const now = performance.now();
 		for (const state of this.states.values()) {
+			if (!payloadMatchesContext(state.overlay, state.context, payload, this.previewMode())) continue;
 			const track = this.getTrack(state);
 			// Static tracks have no advancing playhead — pin to 0 so [0, x) zones match.
 			const playheadT = track?.behavior.type === 'static'
@@ -105,6 +127,7 @@ export class PlaybackEngine {
 				if (!zone && track?.behavior.type === 'static') zone = tr.zones[0];
 				if (!zone) continue;
 				state.lastTriggerKey = key;
+				if (zone.destination.type !== 'ignore') state.activePayload = payload;
 				this.applyDestination(state, zone.destination, now);
 			}
 		}
@@ -167,6 +190,7 @@ export class PlaybackEngine {
 			playheadT,
 			components: componentFrames,
 			triggerKey: state.lastTriggerKey,
+			triggerPayload: state.activePayload,
 		};
 		this.frames.set(stateKey(state.overlay.id ?? '', state.tileKey), frame);
 		return frame;
@@ -182,6 +206,7 @@ function framesEqual(a: OverlayFrame | undefined, b: OverlayFrame | undefined): 
 	if (!a || !b) return false;
 	if (a.activeTrackId !== b.activeTrackId) return false;
 	if (a.playheadT !== b.playheadT) return false;
+	if (a.triggerPayload !== b.triggerPayload) return false;
 	if (a.components.size !== b.components.size) return false;
 	for (const [id, frameA] of a.components) {
 		const frameB = b.components.get(id);

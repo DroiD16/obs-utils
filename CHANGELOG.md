@@ -4,6 +4,7 @@ Fork release based on upstream OBS Utils 5.3.0.
 
 ### Fixed
 
+- Animated overlay tiles keep the payload of the trigger that opened them, so a later roll no longer swaps the text mid-animation. A trigger also only transitions the tiles its payload belongs to.
 - Bundle GSAP for camera keyframe playback: Foundry V14 does not expose `globalThis.gsap` during module load.
 
 ## Version 5.3.0
