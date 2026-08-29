@@ -184,6 +184,21 @@ describe('playbackEngine trigger payload snapshot', () => {
 		}
 	});
 
+	it('broadcasts a payload that names a user without an id', () => {
+		// `payloadHasIdentity` counts only ids, because ids are all
+		// `payloadMatchesContext` can match on — a name-only user would otherwise
+		// be filtered against every tile and reach none of them.
+		const overlay = makeOverlay({ tileBy: 'players' });
+		const h = mount(overlay, [userContext('u1'), userContext('u2')]);
+
+		h.registry.fire('core.onPlayerRoll', { user: { name: 'Player 2' }, total: 12 });
+
+		for (const key of ['user:u1', 'user:u2']) {
+			expect(h.frame(key)?.activeTrackId).toBe('show');
+			expect(h.frame(key)?.triggerPayload).toEqual({ user: { name: 'Player 2' }, total: 12 });
+		}
+	});
+
 	it('keeps the trigger key after a plain overlay returns to its initial track', () => {
 		const h = mount(makeOverlay());
 		h.registry.fire('core.onPlayerRoll', { total: 17 });
@@ -358,10 +373,31 @@ describe('playbackEngine trigger queue', () => {
 			const h = mount(makeQueueOverlay({ queue }));
 			h.registry.fire('core.onPlayerRoll', { total: 1 });
 			advance(200); // show → idle
-			advance(999);
+
+			// A second roll while the first is up. There is no transition out of
+			// `idle` for this key, and without a live queue nothing holds it, so it
+			// is dropped: the plate keeps showing the first roll.
+			h.registry.fire('core.onPlayerRoll', { total: 2 });
+			expect(h.frame()?.activeTrackId).toBe('idle');
+			expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+
+			// The idle hold keeps the full track duration — a live queue would have
+			// cut it down to queueIdleMs (300ms).
+			advance(799);
+			expect(h.frame()?.activeTrackId).toBe('idle');
+			advance(200);
 			expect(h.frame()?.activeTrackId).toBe('idle');
 			advance(1);
 			expect(h.frame()?.activeTrackId).toBe('hide');
+
+			// Back on the initial track, and the dropped roll is never replayed.
+			// Outside the queue the finished snapshot is deliberately kept (stage-1
+			// semantics), so it is still the first roll's — never the second's.
+			advance(200);
+			expect(h.frame()?.activeTrackId).toBe('hidden');
+			expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
+			expect(runTicks(h, 5, 200)).toEqual(Array.from({ length: 5 }).fill('hidden'));
+			expect(h.frame()?.triggerPayload).toEqual({ total: 1 });
 		}
 	});
 
@@ -521,6 +557,33 @@ describe('playbackEngine trigger queue', () => {
 		expect(h.frame()?.activeTrackId).toBe('idle');
 		expect(h.frame()?.triggerPayload).toBeUndefined();
 		expect(h.frame()?.triggerKey).toBeUndefined();
+	});
+
+	it('releases a long queue of self-returning triggers without recursing', () => {
+		// A trigger whose destination is the initial track itself: releasing it
+		// puts the tile straight back where the next release happens. Draining
+		// such a queue recursively costs one stack frame per entry.
+		const overlay = makeQueueOverlay();
+		overlay.animation!.transitions.push({
+			triggerKey: 'core.selfLoop',
+			fromTrackId: 'hidden',
+			zones: [{ startT: 0, endT: 1, destination: { type: 'goto', toTrackId: 'hidden', toTime: 0 } }],
+		});
+		const h = mount(overlay);
+
+		h.registry.fire('core.onPlayerRoll', { total: 0 }); // occupies the tile
+		const count = 5000;
+		for (let i = 1; i <= count; i++) h.registry.fire('core.selfLoop', { total: i });
+		h.registry.fire('core.onPlayerRoll', { total: count + 1 });
+
+		advance(200); // show → idle
+		advance(300); // shortened idle → hide
+		advance(200); // hide ends → the whole queue drains here
+
+		// FIFO held: every self-returning entry was consumed, in order, before the
+		// trailing roll — which is the one left on screen.
+		expect(h.frame()?.activeTrackId).toBe('show');
+		expect(h.frame()?.triggerPayload).toEqual({ total: count + 1 });
 	});
 
 	it('forgets the finished trigger once the tile is idle again', () => {

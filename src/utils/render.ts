@@ -204,14 +204,19 @@ export function resolveComponentValues(
 }
 
 /**
- * Does the payload name an actor or a user at all? Payloads without any
- * identity (a bare `api.fireOverlayTrigger(key, {})`, a chat message with no
- * speaker actor) address no tile in particular, so the playback engine treats
- * them as a broadcast instead of dropping them on every per-actor/per-user tile.
+ * Does the payload identify an actor or a user the way `payloadMatchesContext`
+ * reads it — by id? Payloads carrying no such id (a bare
+ * `api.fireOverlayTrigger(key, {})`, a chat message with no speaker actor, a
+ * name-only `{ user: { name } }`) address no tile in particular, so the playback
+ * engine treats them as a broadcast instead of dropping them on every
+ * per-actor/per-user tile, where they would match none.
+ *
+ * The ids read here must stay the ones `payloadMatchesContext` matches on:
+ * anything counted as an identity but not matchable addresses no tile at all.
  */
 export function payloadHasIdentity(payload: Record<string, any> | undefined): boolean {
 	if (!payload) return false;
-	const hasUser = payload.user != null || payload.message?.user != null;
+	const hasUser = payload.user?.id != null || payload.message?.user?.id != null;
 	const hasActor = payload.actor?.id != null || payload.message?.speaker?.actor != null;
 	return hasUser || hasActor;
 }
