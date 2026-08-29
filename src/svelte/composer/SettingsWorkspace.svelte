@@ -64,14 +64,24 @@
 		commit();
 	}
 
+	// `commit()` writes the same `OverlayData` objects back into a new array, so
+	// edits made in place here never change the `layer` reference and nothing
+	// downstream of it re-renders on its own. Bumping `rev` is what re-renders
+	// the queue section, exactly as `ComponentList`/`LayersPanel` do.
+	let rev = $state(0);
+
 	// Only a `transition-on-end` track has a hide phase to hand over to, so only
 	// those can act as the idle hold the queue shortens.
-	const idleTrackOptions = $derived.by(() =>
-		(layer.animation?.tracks ?? []).filter((t: OverlayTrack) => t.behavior.type === 'transition-on-end'),
-	);
-	const idleTrack = $derived.by(() =>
-		idleTrackOptions.find((t: OverlayTrack) => t.id === layer.queue?.idleTrackId),
-	);
+	function transitionOnEndTracks(l: OverlayData, _rev: number): OverlayTrack[] {
+		return (l.animation?.tracks ?? []).filter((t: OverlayTrack) => t.behavior.type === 'transition-on-end');
+	}
+
+	function findIdleTrack(l: OverlayData, options: OverlayTrack[], _rev: number): OverlayTrack | undefined {
+		return options.find((t: OverlayTrack) => t.id === l.queue?.idleTrackId);
+	}
+
+	const idleTrackOptions = $derived.by(() => transitionOnEndTracks(layer, rev));
+	const idleTrack = $derived.by(() => findIdleTrack(layer, idleTrackOptions, rev));
 
 	function onQueueToggle(e: Event) {
 		const enabled = (e.currentTarget as HTMLInputElement).checked;
@@ -81,12 +91,14 @@
 			queueIdleMs: layer.queue?.queueIdleMs ?? DEFAULT_QUEUED_IDLE_MS,
 		};
 		commit();
+		rev++;
 	}
 
 	function onQueueIdleTrack(e: Event) {
 		if (!layer.queue) return;
 		layer.queue.idleTrackId = (e.currentTarget as HTMLSelectElement).value;
 		commit();
+		rev++;
 	}
 
 	function onQueuedIdleMs(e: Event) {
@@ -94,6 +106,9 @@
 		const v = Number((e.currentTarget as HTMLInputElement).value);
 		layer.queue.queueIdleMs = Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0;
 		commit();
+		// Nothing else depends on this value, so instead of re-rendering the field
+		// the user is typing in, write the clamped value back to the input.
+		(e.currentTarget as HTMLInputElement).value = String(layer.queue.queueIdleMs);
 	}
 
 	function onCanvasWidth(e: Event) {
@@ -145,45 +160,48 @@
 	{#if layer.animation}
 		<section class='queue-section'>
 			<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.title`) ?? 'Trigger queue'}</span>
-			<label class='field checkbox'>
-				<input type='checkbox' checked={layer.queue?.enabled ?? false} onchange={onQueueToggle} />
-				<span>{game.i18n?.localize(`${QUEUE_KEY}.enable`) ?? 'Trigger queue'}</span>
-			</label>
+			{#key rev}
+				<label class='field checkbox'>
+					<input type='checkbox' checked={layer.queue?.enabled ?? false} onchange={onQueueToggle} />
+					<span>{game.i18n?.localize(`${QUEUE_KEY}.enable`) ?? 'Trigger queue'}</span>
+				</label>
 
-			{#if layer.queue?.enabled}
-				<div class='field-row'>
-					<label class='field'>
-						<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrack`) ?? 'Idle track'}</span>
-						<select
-							value={layer.queue.idleTrackId}
-							disabled={idleTrackOptions.length === 0}
-							onchange={onQueueIdleTrack}
-						>
-							{#each idleTrackOptions as track (track.id)}
-								<option value={track.id}>{track.name}</option>
-							{/each}
-						</select>
-					</label>
-					<label class='field'>
-						<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.queuedIdleMs`) ?? 'Queued idle (ms)'}</span>
-						<input
-							type='number'
-							min='0'
-							step='1'
-							value={layer.queue.queueIdleMs}
-							onchange={onQueuedIdleMs}
-						/>
-					</label>
-				</div>
+				{#if layer.queue?.enabled}
+					<div class='field-row'>
+						<label class='field'>
+							<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrack`) ?? 'Idle track'}</span>
+							<select
+								value={idleTrack ? layer.queue.idleTrackId : ''}
+								disabled={idleTrackOptions.length === 0}
+								onchange={onQueueIdleTrack}
+							>
+								<option value='' disabled>{game.i18n?.localize(`${QUEUE_KEY}.idleTrackPlaceholder`) ?? 'Select a track…'}</option>
+								{#each idleTrackOptions as track (track.id)}
+									<option value={track.id}>{track.name}</option>
+								{/each}
+							</select>
+						</label>
+						<label class='field'>
+							<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.queuedIdleMs`) ?? 'Queued idle (ms)'}</span>
+							<input
+								type='number'
+								min='0'
+								step='1'
+								value={layer.queue.queueIdleMs}
+								onchange={onQueuedIdleMs}
+							/>
+						</label>
+					</div>
 
-				{#if idleTrackOptions.length === 0}
-					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrackNone`) ?? 'This layer has no track that transitions on end — the queue stays inactive.'}</p>
-				{:else if !idleTrack}
-					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.invalidTrack`) ?? 'The selected idle track no longer exists — the queue stays inactive.'}</p>
-				{:else}
-					<p class='hint'>{game.i18n?.format(`${QUEUE_KEY}.hint`, { ms: idleTrack.durationMs }) ?? ''}</p>
+					{#if idleTrackOptions.length === 0}
+						<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrackNone`) ?? 'This layer has no track that transitions on end — the queue stays inactive.'}</p>
+					{:else if !idleTrack}
+						<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.invalidTrack`) ?? 'The selected idle track no longer exists — the queue stays inactive.'}</p>
+					{:else}
+						<p class='hint'>{game.i18n?.format(`${QUEUE_KEY}.hint`, { ms: idleTrack.durationMs }) ?? ''}</p>
+					{/if}
 				{/if}
-			{/if}
+			{/key}
 		</section>
 	{/if}
 
