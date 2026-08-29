@@ -1,7 +1,7 @@
 import type { OverlayFrame, RenderState } from '../render.ts';
 import type { OverlayData } from '../types.ts';
 import { describe, expect, it } from 'vitest';
-import { buildRenderTree, buildTileContext, payloadMatchesContext } from '../render.ts';
+import { buildRenderTree, buildTileContext, payloadHasIdentity, payloadMatchesContext } from '../render.ts';
 
 function makeOverlay(patch: Partial<OverlayData> = {}): OverlayData {
 	return {
@@ -94,6 +94,22 @@ describe('payloadMatchesContext', () => {
 		expect(payloadMatchesContext(overlay, ctxActor, { actor: { id: 'a1' } })).toBe(true);
 		expect(payloadMatchesContext(overlay, ctxActor, { message: { speaker: { actor: 'a1' } } })).toBe(true);
 		expect(payloadMatchesContext(overlay, ctxActor, { actor: { id: 'a2' } })).toBe(false);
+	});
+});
+
+describe('payloadHasIdentity', () => {
+	it('is false for payloads that address nobody in particular', () => {
+		expect(payloadHasIdentity(undefined)).toBe(false);
+		expect(payloadHasIdentity({})).toBe(false);
+		expect(payloadHasIdentity({ total: 12, actor: { name: 'Hero' } })).toBe(false);
+		expect(payloadHasIdentity({ message: { speaker: { alias: 'Hero' } } })).toBe(false);
+	});
+
+	it('is true as soon as a user or an actor is named', () => {
+		expect(payloadHasIdentity({ user: { id: 'u1' } })).toBe(true);
+		expect(payloadHasIdentity({ message: { user: { id: 'u1' } } })).toBe(true);
+		expect(payloadHasIdentity({ actor: { id: 'a1' } })).toBe(true);
+		expect(payloadHasIdentity({ message: { speaker: { actor: 'a1' } } })).toBe(true);
 	});
 });
 
