@@ -114,6 +114,7 @@ async function start() {
 				roll: rolls[0],
 				total,
 				formula,
+				flavor: String(message.flavor ?? ''),
 				isCritical: firstD20 === 20,
 				isFumble: firstD20 === 1,
 			});

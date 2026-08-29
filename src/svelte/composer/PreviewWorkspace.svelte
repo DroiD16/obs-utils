@@ -28,6 +28,7 @@
 				roll: { total: d20, formula: '1d20' },
 				total: d20,
 				formula: '1d20',
+				flavor: 'Attack Roll',
 				isCritical: d20 === 20,
 				isFumble: d20 === 1,
 			};

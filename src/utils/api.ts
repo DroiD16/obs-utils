@@ -471,6 +471,7 @@ function registerBuiltinOverlayTriggers() {
 			{ key: 'roll', type: 'Roll', label: 'obs-utils.triggers.core.onPlayerRoll.fields.roll', display: true, filter: false },
 			{ key: 'total', type: 'number', label: 'obs-utils.triggers.core.onPlayerRoll.fields.total', display: true, filter: true },
 			{ key: 'formula', type: 'string', label: 'obs-utils.triggers.core.onPlayerRoll.fields.formula', display: true, filter: true },
+			{ key: 'flavor', type: 'string', label: 'obs-utils.triggers.core.onPlayerRoll.fields.flavor', display: true, filter: true },
 			{ key: 'isCritical', type: 'boolean', label: 'obs-utils.triggers.core.onPlayerRoll.fields.isCritical', display: true, filter: true },
 			{ key: 'isFumble', type: 'boolean', label: 'obs-utils.triggers.core.onPlayerRoll.fields.isFumble', display: true, filter: true },
 		],
