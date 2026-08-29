@@ -303,6 +303,7 @@
 					"title": "Trigger queue",
 					"enable": "Queue triggers while a tile is showing",
 					"idleTrack": "Idle track",
+					"idleTrackPlaceholder": "Select a track…",
 					"idleTrackNone": "This layer has no track that transitions on end, so the queue stays inactive.",
 					"queuedIdleMs": "Queued idle (ms)",
 					"hint": "Normal idle hold is the idle track’s duration ({ms} ms); while triggers are queued it is shortened to this value.",
