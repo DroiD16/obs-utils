@@ -330,15 +330,33 @@ function idleTrack(state: TileState): OverlayTrack | undefined {
 	return state.overlay.animation?.tracks.find(t => t.id === id);
 }
 
+/** Why a queue config cannot run, or `ok` when it can. */
+export type QueueConfigStatus = 'disabled' | 'ok' | 'no-idle-track' | 'invalid-idle-track' | 'chain-does-not-return';
+
+/**
+ * The single source of truth on whether a queue config is usable, shared by the
+ * engine — which falls open on anything but `ok`, so a broken config plays back
+ * exactly as it would without a queue — and by the Composer, which turns the
+ * same verdict into an inline warning. Pure: no engine state involved.
+ */
+export function validateQueueConfig(overlay: OverlayData): QueueConfigStatus {
+	const animation = overlay.animation;
+	if (!overlay.queue?.enabled || !animation) return 'disabled';
+	// Only a `transition-on-end` track has a hide phase to hand over to, so only
+	// those can act as the idle hold the queue shortens.
+	if (!animation.tracks.some(t => t.behavior.type === 'transition-on-end')) return 'no-idle-track';
+	const idle = animation.tracks.find(t => t.id === overlay.queue?.idleTrackId);
+	if (idle?.behavior.type !== 'transition-on-end') return 'invalid-idle-track';
+	if (!leadsBackToInitialTrack(animation, idle)) return 'chain-does-not-return';
+	return 'ok';
+}
+
 /**
  * A queue only runs against a well-formed config. Anything else falls open —
  * the tile behaves exactly as it would without a queue.
  */
 function isQueueActive(state: TileState): boolean {
-	if (!state.overlay.queue?.enabled) return false;
-	const idle = idleTrack(state);
-	if (idle?.behavior.type !== 'transition-on-end') return false;
-	return leadsBackToInitialTrack(state, idle);
+	return validateQueueConfig(state.overlay) === 'ok';
 }
 
 /**
@@ -346,9 +364,7 @@ function isQueueActive(state: TileState): boolean {
  * queue if that chain ends back on the initial track, where the next queued
  * trigger can be released. The walk is bounded by the number of tracks.
  */
-function leadsBackToInitialTrack(state: TileState, idle: OverlayTrack): boolean {
-	const animation = state.overlay.animation;
-	if (!animation) return false;
+function leadsBackToInitialTrack(animation: NonNullable<OverlayData['animation']>, idle: OverlayTrack): boolean {
 	let track: OverlayTrack | undefined = idle;
 	for (let hops = 0; hops < animation.tracks.length; hops++) {
 		if (track?.behavior.type !== 'transition-on-end') return false;

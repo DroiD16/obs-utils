@@ -1,7 +1,7 @@
 import type { OverlayFrame, RenderContext } from '../render.ts';
 import type { OverlayData } from '../types.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PlaybackEngine } from '../playback.ts';
+import { PlaybackEngine, validateQueueConfig } from '../playback.ts';
 import { TriggerRegistry } from '../triggers.ts';
 
 // ─── clock + rAF harness ──────────────────────────────────────────────────────
@@ -596,5 +596,45 @@ describe('playbackEngine trigger queue', () => {
 		expect(h.frame()?.activeTrackId).toBe('hidden');
 		expect(h.frame()?.triggerPayload).toBeUndefined();
 		expect(h.frame()?.triggerKey).toBeUndefined();
+	});
+});
+
+// ─── queue config validation ──────────────────────────────────────────────────
+
+describe('validateQueueConfig', () => {
+	it('accepts the show → idle → hide → initial chain', () => {
+		expect(validateQueueConfig(makeQueueOverlay())).toBe('ok');
+	});
+
+	it('reports a queue that is absent or switched off', () => {
+		expect(validateQueueConfig(makeOverlay())).toBe('disabled');
+		expect(validateQueueConfig(makeQueueOverlay({
+			queue: { enabled: false, idleTrackId: 'idle', queueIdleMs: 300 },
+		}))).toBe('disabled');
+	});
+
+	it('reports a layer with no track that transitions on end', () => {
+		const overlay = makeQueueOverlay();
+		for (const track of overlay.animation!.tracks) track.behavior = { type: 'static' };
+		expect(validateQueueConfig(overlay)).toBe('no-idle-track');
+	});
+
+	it('reports an idle track that is gone or no longer transitions on end', () => {
+		expect(validateQueueConfig(makeQueueOverlay({
+			queue: { enabled: true, idleTrackId: 'nope', queueIdleMs: 300 },
+		}))).toBe('invalid-idle-track');
+		expect(validateQueueConfig(makeQueueOverlay({
+			queue: { enabled: true, idleTrackId: 'hidden', queueIdleMs: 300 },
+		}))).toBe('invalid-idle-track');
+	});
+
+	it('reports a chain that never hands back to the initial track', () => {
+		const overlay = makeQueueOverlay();
+		overlay.animation!.tracks.find(t => t.id === 'hide')!.behavior = {
+			type: 'transition-on-end',
+			toTrackId: 'gone',
+			toTime: 0,
+		};
+		expect(validateQueueConfig(overlay)).toBe('chain-does-not-return');
 	});
 });
