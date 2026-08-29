@@ -299,6 +299,15 @@
 				"tileByPlayers": "Players",
 				"tileByUsers": "Users (incl. GM)",
 				"tileByOnce": "Once (singleton)",
+				"queue": {
+					"title": "Trigger queue",
+					"enable": "Queue triggers while a tile is showing",
+					"idleTrack": "Idle track",
+					"idleTrackNone": "This layer has no track that transitions on end, so the queue stays inactive.",
+					"queuedIdleMs": "Queued idle (ms)",
+					"hint": "Normal idle hold is the idle track’s duration ({ms} ms); while triggers are queued it is shortened to this value.",
+					"invalidTrack": "The selected idle track is gone or no longer transitions on end, so the queue stays inactive."
+				},
 				"canvasWidth": "Canvas width (px)",
 				"canvasHeight": "Canvas height (px)",
 				"customCSS": "Custom CSS for this overlay",
