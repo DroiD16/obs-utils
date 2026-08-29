@@ -1195,3 +1195,95 @@ test.describe('OBS Remote menu', () => {
 		await expect(app.locator('.instance')).toHaveCount(0);
 	});
 });
+
+test.describe('Trigger queue', () => {
+	const ROW = '[data-overlay-row-id="test-roll-queue"]';
+
+	async function hasQueueOverlay(gmPage: Page): Promise<boolean> {
+		return await gmPage.evaluate(() => {
+			// @ts-expect-error run in plain js
+			const overlays: OverlayData[] = game.settings.get('obs-utils', 'streamOverlays');
+			return overlays.some(o => o.id === 'test-roll-queue');
+		});
+	}
+
+	async function fireRoll(obsPage: Page, payload: Record<string, unknown>) {
+		await obsPage.evaluate((p) => {
+			// @ts-expect-error run in plain js
+			game.modules.get('obs-utils').api.fireOverlayTrigger('core.onPlayerRoll', p);
+		}, payload);
+	}
+
+	function roll(name: string, total: number, flavor: string) {
+		return { actor: { name }, total, formula: '1d20', flavor, isCritical: false, isFumble: false };
+	}
+
+	test.beforeEach(async ({ pages: { gmPage, obsPage } }) => {
+		test.skip(!(await hasQueueOverlay(gmPage)), 'no test-roll-queue overlay in fixture');
+		await obsPage.goto('/stream');
+		// @ts-expect-error run in plain js
+		await obsPage.waitForFunction(() => window.game?.modules?.get?.('obs-utils')?.api);
+		// The reload above drops any queue a previous test left behind.
+		await obsPage.waitForSelector(`${ROW} .overlay-tile`);
+	});
+
+	test('a second roll waits for the first plate to hide instead of replacing it', async ({ pages: { obsPage } }) => {
+		const tile = obsPage.locator(`${ROW} .overlay-tile`);
+		await expect(tile).toHaveCount(1);
+
+		await fireRoll(obsPage, roll('Hero', 41, 'First Strike'));
+		await fireRoll(obsPage, roll('Ranger', 42, 'Second Wind'));
+
+		// The plate is pinned to the first roll for its whole show.
+		await expect(tile).toContainText('41');
+		await expect(tile).toContainText('Hero');
+		await expect(tile).not.toContainText('42');
+
+		// Still exactly one plate — the queue never shows two at once.
+		await expect(tile).toHaveCount(1);
+
+		// The queued roll takes over once the first has hidden.
+		await expect(tile).toContainText('42');
+		await expect(tile).toContainText('Ranger');
+		await expect(tile).not.toContainText('41');
+	});
+
+	test('a queued roll shortens the idle hold', async ({ pages: { obsPage } }) => {
+		const elapsed = await obsPage.evaluate(async () => {
+			const first = { actor: { name: 'Hero' }, total: 41, formula: '1d20', flavor: 'First' };
+			const second = { actor: { name: 'Ranger' }, total: 42, formula: '1d20', flavor: 'Second' };
+			// @ts-expect-error run in plain js
+			const api = game.modules.get('obs-utils').api;
+			const shows = (needle: string) =>
+				(document.querySelector('[data-overlay-row-id="test-roll-queue"] .overlay-tile')?.textContent ?? '').includes(needle);
+
+			const started = performance.now();
+			api.fireOverlayTrigger('core.onPlayerRoll', first);
+			api.fireOverlayTrigger('core.onPlayerRoll', second);
+			return await new Promise<number>((resolve) => {
+				const check = () => {
+					if (shows('42')) resolve(performance.now() - started);
+					else if (performance.now() - started > 5000) resolve(-1);
+					else requestAnimationFrame(check);
+				};
+				check();
+			});
+		});
+
+		// show 200 + queued idle 300 + hide 200 ≈ 700ms. Without the shortened
+		// idle the full 1000ms hold would push this past 1400ms.
+		expect(elapsed).toBeGreaterThan(0);
+		expect(elapsed).toBeLessThan(1300);
+	});
+
+	test('the roll flavor is rendered on the plate', async ({ pages: { obsPage } }) => {
+		await fireRoll(obsPage, roll('Hero', 43, 'Power Attack'));
+		await expect(obsPage.locator(`${ROW} [data-component-id="rq-flavor"]`)).toContainText('Power Attack');
+	});
+
+	test('no queue-length indicator is rendered', async ({ pages: { obsPage } }) => {
+		await fireRoll(obsPage, roll('Hero', 44, 'One'));
+		await fireRoll(obsPage, roll('Ranger', 45, 'Two'));
+		await expect(obsPage.locator('[data-queue-length]')).toHaveCount(0);
+	});
+});
