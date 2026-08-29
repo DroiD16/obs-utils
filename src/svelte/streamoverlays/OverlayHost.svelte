@@ -1,12 +1,12 @@
 <svelte:options runes={true} />
 <script lang='ts'>
-	import type { OverlayFrame, RenderedOverlay, RenderState } from '../../utils/render.ts';
+	import type { OverlayFrame, RenderedOverlay, RenderState, TileMode } from '../../utils/render.ts';
 	import type { OverlayData } from '../../utils/types.ts';
 	import { onDestroy, onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { getApi } from '../../utils/helpers.ts';
 	import { PlaybackEngine } from '../../utils/playback.ts';
-	import { buildRenderTree } from '../../utils/render.ts';
+	import { buildRenderTree, buildTileContext } from '../../utils/render.ts';
 	import { TriggerRegistry } from '../../utils/triggers.ts';
 
 	const { overlays, actorIDs, previewMode = false }: {
@@ -27,7 +27,7 @@
 
 	const playback = new PlaybackEngine(registry, frames, () => {
 		frameTick = frameTick + 1;
-	});
+	}, () => previewMode);
 
 	const legacyHookIds: number[] = [];
 
@@ -119,21 +119,18 @@
 		const wanted = new SvelteSet<string>();
 		for (const ov of overlays ?? []) {
 			if (!ov?.animation) continue;
-			const ids = ov.tileBy === 'players'
+			const mode = (ov.tileBy ?? 'actors') as TileMode;
+			const ids = mode === 'players'
 				? userIDs
-				: ov.tileBy === 'users'
+				: mode === 'users'
 				? allUserIDs
-				: ov.tileBy === 'once'
+				: mode === 'once'
 				? ['singleton']
 				: actorIDs;
 			for (const id of ids) {
-				const tileKey = ov.tileBy === 'players' || ov.tileBy === 'users'
-					? `user:${id}`
-					: ov.tileBy === 'once'
-					? 'singleton'
-					: `actor:${id}`;
-				wanted.add(`${ov.id ?? ''}:${tileKey}`);
-				playback.mountTile(ov, tileKey);
+				const context = buildTileContext(mode, id, { actors, users });
+				wanted.add(`${ov.id ?? ''}:${context.key}`);
+				playback.mountTile(ov, context.key, context);
 			}
 		}
 		for (const key of [...frames.keys()]) {

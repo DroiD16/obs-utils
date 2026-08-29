@@ -22,6 +22,12 @@ export interface OverlayFrame {
 	playheadT: number;
 	components: Map<string, ComponentFrame>;
 	triggerKey?: string;
+	/**
+	 * Payload of the trigger that started the current show, snapshotted by the
+	 * playback engine. Pins the tile to the roll that opened it, so a later
+	 * roll cannot swap the text out mid-animation.
+	 */
+	triggerPayload?: Record<string, unknown>;
 }
 
 export interface ComponentFrame {
@@ -197,35 +203,51 @@ export function resolveComponentValues(
 	return { value: data ?? '' };
 }
 
+/**
+ * Does a trigger payload belong to this tile? Shared by the renderer's payload
+ * fallback chain and by the playback engine, which uses it to decide whether a
+ * trigger may transition (and snapshot into) a given tile.
+ */
+export function payloadMatchesContext(
+	overlay: OverlayData,
+	context: RenderContext,
+	payload: Record<string, any> | undefined,
+	previewMode?: boolean,
+): boolean {
+	if (!payload) return false;
+	if (previewMode) return true;
+	const tileBy = overlay.tileBy ?? 'actors';
+	if (tileBy === 'once') return true;
+	if (tileBy === 'actors') {
+		const tileActorId = context.actor?.id;
+		if (!tileActorId) return true;
+		const payloadActorId
+			= payload.actor?.id
+				?? payload.message?.speaker?.actor
+				?? null;
+		return payloadActorId === tileActorId;
+	}
+	const tileUserId = context.user?.id;
+	if (!tileUserId) return false;
+	const payloadUserId
+		= payload.user?.id
+			?? payload.message?.user?.id
+			?? null;
+	return payloadUserId === tileUserId;
+}
+
 function resolveTriggerPayload(
 	overlay: OverlayData,
 	context: RenderContext,
 	frame: OverlayFrame | undefined,
 	state: RenderState,
 ): Record<string, unknown> | undefined {
-	const tileBy = overlay.tileBy ?? 'actors';
+	// The engine pinned a payload to this show — it wins over the global
+	// last-payload-per-key map, which a newer trigger may already have replaced.
+	if (frame?.triggerPayload) return frame.triggerPayload;
 
-	const matchesContext = (payload: Record<string, any> | undefined): boolean => {
-		if (!payload) return false;
-		if (state.previewMode) return true;
-		if (tileBy === 'once') return true;
-		if (tileBy === 'actors') {
-			const tileActorId = context.actor?.id;
-			if (!tileActorId) return true;
-			const payloadActorId
-				= payload.actor?.id
-					?? payload.message?.speaker?.actor
-					?? null;
-			return payloadActorId === tileActorId;
-		}
-		const tileUserId = context.user?.id;
-		if (!tileUserId) return false;
-		const payloadUserId
-			= payload.user?.id
-				?? payload.message?.user?.id
-				?? null;
-		return payloadUserId === tileUserId;
-	};
+	const matchesContext = (payload: Record<string, any> | undefined): boolean =>
+		payloadMatchesContext(overlay, context, payload, state.previewMode);
 
 	if (frame?.triggerKey) {
 		const p = state.triggerPayloads.get(frame.triggerKey);
@@ -303,27 +325,39 @@ export function buildPreviewOverlay(
 	return buildOverlay(overlay, context, state);
 }
 
+/**
+ * The render context of one tile. Shared with `OverlayHost`, which needs the
+ * same context when mounting a tile into the playback engine.
+ */
+export function buildTileContext(
+	mode: TileMode,
+	id: string,
+	state: Pick<RenderState, 'actors' | 'users'>,
+): RenderContext {
+	if (mode === 'once') return { key: 'singleton' };
+	if (mode === 'players' || mode === 'users') {
+		const u = state.users.get(id) as { name?: string; character?: { id: string; name?: string } } | undefined;
+		return {
+			key: `user:${id}`,
+			user: { id, name: u?.name },
+			actor: u?.character ? { id: u.character.id, name: u.character.name } : null,
+		};
+	}
+	const a = state.actors.get(id) as { name?: string } | undefined;
+	return { key: `actor:${id}`, actor: { id, name: a?.name } };
+}
+
 function expandContexts(
 	mode: TileMode,
 	overlay: OverlayData,
 	state: RenderState,
 	options: BuildRenderTreeOptions,
 ): RenderContext[] {
-	if (mode === 'once') return [{ key: 'singleton' }];
-	if (mode === 'players' || mode === 'users') {
-		const idList = mode === 'users' ? (options.allUserIds ?? []) : (options.userIds ?? []);
-		return idList.map((id) => {
-			const u = state.users.get(id) as { name?: string; character?: { id: string; name?: string } } | undefined;
-			return {
-				key: `user:${id}`,
-				user: { id, name: u?.name },
-				actor: u?.character ? { id: u.character.id, name: u.character.name } : null,
-			};
-		});
-	}
-	const ids = options.actorIds ?? [];
-	return ids.map((id) => {
-		const a = state.actors.get(id) as { name?: string } | undefined;
-		return { key: `actor:${id}`, actor: { id, name: a?.name } };
-	});
+	if (mode === 'once') return [buildTileContext(mode, 'singleton', state)];
+	const ids = mode === 'users'
+		? (options.allUserIds ?? [])
+		: mode === 'players'
+			? (options.userIds ?? [])
+			: (options.actorIds ?? []);
+	return ids.map(id => buildTileContext(mode, id, state));
 }
