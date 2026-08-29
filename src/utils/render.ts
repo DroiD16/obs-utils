@@ -204,6 +204,19 @@ export function resolveComponentValues(
 }
 
 /**
+ * Does the payload name an actor or a user at all? Payloads without any
+ * identity (a bare `api.fireOverlayTrigger(key, {})`, a chat message with no
+ * speaker actor) address no tile in particular, so the playback engine treats
+ * them as a broadcast instead of dropping them on every per-actor/per-user tile.
+ */
+export function payloadHasIdentity(payload: Record<string, any> | undefined): boolean {
+	if (!payload) return false;
+	const hasUser = payload.user != null || payload.message?.user != null;
+	const hasActor = payload.actor?.id != null || payload.message?.speaker?.actor != null;
+	return hasUser || hasActor;
+}
+
+/**
  * Does a trigger payload belong to this tile? Shared by the renderer's payload
  * fallback chain and by the playback engine, which uses it to decide whether a
  * trigger may transition (and snapshot into) a given tile.
