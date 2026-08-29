@@ -1,7 +1,11 @@
 <svelte:options runes={true} />
 <script lang='ts'>
+	import type { OverlayTrack } from '../../utils/overlayAnimation.ts';
 	import type { OverlayData, OverlayTileMode } from '../../utils/types.ts';
 	import { getApi } from '../../utils/helpers.ts';
+
+	const QUEUE_KEY = 'obs-utils.applications.overlayEditor.queue';
+	const DEFAULT_QUEUED_IDLE_MS = 900;
 
 	const {
 		layer,
@@ -60,6 +64,38 @@
 		commit();
 	}
 
+	// Only a `transition-on-end` track has a hide phase to hand over to, so only
+	// those can act as the idle hold the queue shortens.
+	const idleTrackOptions = $derived.by(() =>
+		(layer.animation?.tracks ?? []).filter((t: OverlayTrack) => t.behavior.type === 'transition-on-end'),
+	);
+	const idleTrack = $derived.by(() =>
+		idleTrackOptions.find((t: OverlayTrack) => t.id === layer.queue?.idleTrackId),
+	);
+
+	function onQueueToggle(e: Event) {
+		const enabled = (e.currentTarget as HTMLInputElement).checked;
+		layer.queue = {
+			enabled,
+			idleTrackId: layer.queue?.idleTrackId ?? idleTrackOptions[0]?.id ?? '',
+			queueIdleMs: layer.queue?.queueIdleMs ?? DEFAULT_QUEUED_IDLE_MS,
+		};
+		commit();
+	}
+
+	function onQueueIdleTrack(e: Event) {
+		if (!layer.queue) return;
+		layer.queue.idleTrackId = (e.currentTarget as HTMLSelectElement).value;
+		commit();
+	}
+
+	function onQueuedIdleMs(e: Event) {
+		if (!layer.queue) return;
+		const v = Number((e.currentTarget as HTMLInputElement).value);
+		layer.queue.queueIdleMs = Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0;
+		commit();
+	}
+
 	function onCanvasWidth(e: Event) {
 		const v = Number((e.currentTarget as HTMLInputElement).value) || 0;
 		layer.config = { ...(layer.config ?? {}), w: Math.max(1, v) };
@@ -106,6 +142,51 @@
 		</label>
 	</section>
 
+	{#if layer.animation}
+		<section class='queue-section'>
+			<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.title`) ?? 'Trigger queue'}</span>
+			<label class='field checkbox'>
+				<input type='checkbox' checked={layer.queue?.enabled ?? false} onchange={onQueueToggle} />
+				<span>{game.i18n?.localize(`${QUEUE_KEY}.enable`) ?? 'Trigger queue'}</span>
+			</label>
+
+			{#if layer.queue?.enabled}
+				<div class='field-row'>
+					<label class='field'>
+						<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrack`) ?? 'Idle track'}</span>
+						<select
+							value={layer.queue.idleTrackId}
+							disabled={idleTrackOptions.length === 0}
+							onchange={onQueueIdleTrack}
+						>
+							{#each idleTrackOptions as track (track.id)}
+								<option value={track.id}>{track.name}</option>
+							{/each}
+						</select>
+					</label>
+					<label class='field'>
+						<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.queuedIdleMs`) ?? 'Queued idle (ms)'}</span>
+						<input
+							type='number'
+							min='0'
+							step='1'
+							value={layer.queue.queueIdleMs}
+							onchange={onQueuedIdleMs}
+						/>
+					</label>
+				</div>
+
+				{#if idleTrackOptions.length === 0}
+					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrackNone`) ?? 'This layer has no track that transitions on end — the queue stays inactive.'}</p>
+				{:else if !idleTrack}
+					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.invalidTrack`) ?? 'The selected idle track no longer exists — the queue stays inactive.'}</p>
+				{:else}
+					<p class='hint'>{game.i18n?.format(`${QUEUE_KEY}.hint`, { ms: idleTrack.durationMs }) ?? ''}</p>
+				{/if}
+			{/if}
+		</section>
+	{/if}
+
 	{#if layer.type === 'wysiwyg'}
 		<section class='field-row'>
 			<label class='field'>
@@ -142,6 +223,43 @@
 		overflow-y auto
 		min-height 0
 		flex 1 1 auto
+
+	.queue-section
+		display flex
+		flex-direction column
+		gap 10px
+
+		> .label
+			font-size 11px
+			text-transform uppercase
+			letter-spacing 0.4px
+			opacity 0.7
+			font-weight 500
+
+	.field.checkbox
+		flex-direction row
+		align-items center
+		gap 8px
+		font-size 12px
+
+		input
+			width auto
+			height auto
+
+	.hint
+		margin 0
+		padding 8px
+		font-size 11px
+		opacity 0.6
+		font-style italic
+		background rgba(255, 255, 255, 0.02)
+		border 1px dashed rgba(255, 255, 255, 0.1)
+		border-radius 3px
+
+		&.warn
+			opacity 0.9
+			color #ffb347
+			border-color rgba(255, 179, 71, 0.4)
 
 	.field-row
 		display grid
