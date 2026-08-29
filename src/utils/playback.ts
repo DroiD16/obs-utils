@@ -24,6 +24,8 @@ interface TileState {
 	activePayload?: Record<string, unknown>;
 	/** Triggers deferred while the tile was busy, replayed FIFO. */
 	queue: QueuedTrigger[];
+	/** Set while `onTrackEntered` is draining the queue, to keep it iterative. */
+	releasing?: boolean;
 }
 
 function stateKey(overlayId: string, tileKey: string): string {
@@ -211,21 +213,39 @@ export class PlaybackEngine {
 	/**
 	 * Bookkeeping for every track change: once the tile is back on the initial
 	 * track it forgets the finished trigger and releases the next queued one.
+	 *
+	 * Releasing re-enters this method through `applyDestination` → `gotoTrack`.
+	 * A queued destination that lands straight back on the initial track would
+	 * therefore recurse once per queued trigger and can blow the stack, so the
+	 * outermost call owns the drain: nested calls bail out on `releasing`, and
+	 * the loop below re-checks the track after each release. It consumes at most
+	 * one entry per iteration and is bounded by the queue length.
 	 */
 	private onTrackEntered(state: TileState, now: number): void {
+		if (state.releasing) return;
 		if (!isQueueActive(state)) return;
-		// The initial track is the only place a queued trigger can be released
-		// from, including the degenerate config where it doubles as the idle
-		// track — there entering it frees the slot, so the head goes out at once.
-		if (state.currentTrackId !== state.overlay.animation?.initialTrackId) return;
-		state.activePayload = undefined;
-		// The show is over — nothing about the finished trigger should linger.
-		state.lastTriggerKey = undefined;
-		const next = state.queue.shift();
-		if (!next) return;
-		state.activePayload = next.payload;
-		state.lastTriggerKey = next.triggerKey;
-		this.applyDestination(state, next.destination, now);
+		let released = false;
+		state.releasing = true;
+		try {
+			for (let budget = state.queue.length + 1; budget > 0; budget--) {
+				// The initial track is the only place a queued trigger can be
+				// released from, including the degenerate config where it doubles as
+				// the idle track — there entering it frees the slot at once.
+				if (state.currentTrackId !== state.overlay.animation?.initialTrackId) break;
+				state.activePayload = undefined;
+				// The show is over — nothing about the finished trigger should linger.
+				state.lastTriggerKey = undefined;
+				const next = state.queue.shift();
+				if (!next) break;
+				state.activePayload = next.payload;
+				state.lastTriggerKey = next.triggerKey;
+				released = true;
+				this.applyDestination(state, next.destination, now);
+			}
+		} finally { state.releasing = false; }
+		// The frame the last release persisted predates the bookkeeping the
+		// iteration after it did, so it is recomputed once the drain is over.
+		if (released) this.computeFrame(state);
 	}
 
 	private applyDestination(state: TileState, dest: ZoneDestination, now: number): void {

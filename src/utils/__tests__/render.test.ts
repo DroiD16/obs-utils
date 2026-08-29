@@ -103,6 +103,11 @@ describe('payloadHasIdentity', () => {
 		expect(payloadHasIdentity({})).toBe(false);
 		expect(payloadHasIdentity({ total: 12, actor: { name: 'Hero' } })).toBe(false);
 		expect(payloadHasIdentity({ message: { speaker: { alias: 'Hero' } } })).toBe(false);
+		// Only ids count: a name is not something `payloadMatchesContext` can
+		// match a tile on, so a name-only payload must broadcast rather than be
+		// filtered down to no tile at all.
+		expect(payloadHasIdentity({ user: { name: 'Player 2' } })).toBe(false);
+		expect(payloadHasIdentity({ message: { user: { name: 'Player 2' } } })).toBe(false);
 	});
 
 	it('is true as soon as a user or an actor is named', () => {
