@@ -369,7 +369,7 @@
 				opacity 0.35
 				cursor not-allowed
 
-			&.danger:hover
+			&.danger:hover:not(:disabled)
 				background rgba(220, 60, 60, 0.15)
 				border-color rgba(220, 60, 60, 0.4)
 

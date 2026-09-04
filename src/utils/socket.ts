@@ -4,7 +4,7 @@ import type { ViewportPayload } from './canvas';
 import type { OBSWebsocketSettings } from './types.ts';
 import { playSequence } from './cameraSequencePlayer.ts';
 import { clampAndApplyExternal, getCurrentUser, getLocalViewport, VIEWPORT_DATA, viewportChanged } from './canvas';
-import { isBroadcastOperator, isOBS } from './helpers.ts';
+import { getActiveGM, isBroadcastOperator, isOBS } from './helpers.ts';
 import { getSetting, setSetting } from './settings.ts';
 
 type NotifyOptions = foundry.applications.ui.Notifications.NotifyOptions;
@@ -367,11 +367,12 @@ export function sendRequestPresetPlay(preset: CameraPreset) {
 
 async function handleRequestPresetPlay(payload: PlayPresetPayload) {
 	if (!(game as ReadyGame).user?.isGM) return;
-	// Only the primary GM orchestrates — with two GMs online the preset would
-	// otherwise be broadcast to OBS twice.
-	const primaryGM = (game as ReadyGame).users?.find((u: User) => u.isGM && u.active)
-		?? (game as ReadyGame).users?.find((u: User) => u.isGM);
-	if (primaryGM && (game as ReadyGame).user?.id !== primaryGM.id) return;
+	// Exactly one GM orchestrates — with two GMs online the preset would
+	// otherwise be broadcast to OBS twice. Prefer the GM who already owns the
+	// broadcast camera (getActiveGM honors a Co-DM handover via activeGMUserId),
+	// so the operator's Play doesn't silently move the claim to another GM.
+	const executor = getActiveGM() ?? (game as ReadyGame).users?.find((u: User) => u.isGM);
+	if (executor && (game as ReadyGame).user?.id !== executor.id) return;
 	await orchestratePresetPlay(payload.preset);
 }
 

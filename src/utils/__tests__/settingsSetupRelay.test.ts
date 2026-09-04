@@ -1,14 +1,18 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setSetting } from '../settings.ts';
 
-vi.mock('../settings.ts', () => ({
-	ensureStore: vi.fn(() => ({ set: vi.fn() })),
-	getSetting: vi.fn(),
-	setSetting: vi.fn(),
-	OBS_MODIFIABLE_SETTINGS: new Set(['trackedUser', 'cameraTrackingMode', 'cameraSmoothing', 'cameraEasing']),
-}));
+vi.mock('../settings.ts', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../settings.ts')>();
+	return {
+		ensureStore: vi.fn(() => ({ set: vi.fn() })),
+		getSetting: vi.fn(),
+		setSetting: vi.fn(),
+		// The real whitelist, so these tests break if a key is removed from it.
+		OBS_MODIFIABLE_SETTINGS: actual.OBS_MODIFIABLE_SETTINGS,
+	};
+});
 vi.mock('../canvas.ts', () => ({ scaleToFit: vi.fn(), tokenMoved: vi.fn(), viewportChanged: vi.fn() }));
-vi.mock('../helpers.ts', () => ({ getGM: vi.fn(), isOBS: vi.fn(() => false) }));
+vi.mock('../helpers.ts', () => ({ getGM: vi.fn(), isBroadcastOperator: vi.fn(() => false), isOBS: vi.fn(() => false) }));
 vi.mock('../types.ts', () => ({ OBSRemoteSettings: class {}, OBSWebsocketSettings: class {} }));
 
 const setSettingMock = vi.mocked(setSetting);
