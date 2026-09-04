@@ -4,7 +4,7 @@ import type { ViewportPayload } from './canvas';
 import type { OBSWebsocketSettings } from './types.ts';
 import { playSequence } from './cameraSequencePlayer.ts';
 import { clampAndApplyExternal, getCurrentUser, getLocalViewport, VIEWPORT_DATA, viewportChanged } from './canvas';
-import { isOBS } from './helpers.ts';
+import { isBroadcastOperator, isOBS } from './helpers.ts';
 import { getSetting, setSetting } from './settings.ts';
 
 type NotifyOptions = foundry.applications.ui.Notifications.NotifyOptions;
@@ -34,6 +34,8 @@ async function handleEvent({ eventType, targetUser, payload }: {
 		await handleGMHandoverGrant(payload);
 	} else if (eventType === 'playPreset') {
 		handlePlayPreset(payload);
+	} else if (eventType === 'requestPresetPlay') {
+		await handleRequestPresetPlay(payload);
 	} else if (eventType === 'stopPreset') {
 		handleStopPreset();
 	} else if (eventType === 'requestViewport') {
@@ -345,6 +347,36 @@ function handleStopPreset() {
 		activePresetController.stop();
 		activePresetController = null;
 	}
+}
+
+// ─── Operator preset relay ────────────────────────────────────────────────
+// The broadcast operator can't run orchestratePresetPlay — it writes world
+// settings under the clicking user. Instead the operator asks the GMs; the
+// primary GM (same election as the settings relay in settingsSetup.ts) runs
+// the ordinary orchestration under their own identity.
+
+/**
+ * Operator-side sender. Re-checks the role right before emitting — not as
+ * forgery protection, but so a Director window opened before the role was
+ * revoked stops sending requests after the revocation lands.
+ */
+export function sendRequestPresetPlay(preset: CameraPreset) {
+	if (!isBroadcastOperator()) return;
+	(game as ReadyGame | undefined)?.socket?.emit('module.obs-utils', {
+		eventType: 'requestPresetPlay',
+		targetUser: undefined,
+		payload: { preset } satisfies PlayPresetPayload,
+	});
+}
+
+async function handleRequestPresetPlay(payload: PlayPresetPayload) {
+	if (!(game as ReadyGame).user?.isGM) return;
+	// Only the primary GM orchestrates — with two GMs online the preset would
+	// otherwise be broadcast to OBS twice.
+	const primaryGM = (game as ReadyGame).users?.find((u: User) => u.isGM && u.active)
+		?? (game as ReadyGame).users?.find((u: User) => u.isGM);
+	if (primaryGM && (game as ReadyGame).user?.id !== primaryGM.id) return;
+	await orchestratePresetPlay(payload.preset);
 }
 
 /**

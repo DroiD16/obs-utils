@@ -17,6 +17,7 @@
 			"avInputPlaceholder": "Enter text or search",
 			"customGroup": "Custom",
 			"triggerGroup": "Trigger",
+			"broadcastOperatorNone": "Не назначен",
 			"iconPlaceholder": "Иконка",
 			"true": "True",
 			"false": "False",
@@ -78,6 +79,8 @@
 				"levelBlockedShort": "Не показать {level}",
 				"forceOpenSettingsForOBSUser": "Force Open Settings Menu for OBS User",
 				"noGMWarning": "No GM is currently logged in, director settings cannot be changed",
+				"worksWithoutGM": "Работает даже без активного GM",
+				"presetStopAll": "Остановить активный пресет",
 				"cameraSmoothingHeader": "Camera Smoothing",
 				"easing": "Easing",
 				"duration": "Duration",
@@ -553,6 +556,10 @@
 			"obsModeUser": {
 				"Name": "Пользователь режима OBS (Участник)",
 				"Hint": "Навсегда устанавливает браузер этого Участника в режим OBS"
+			},
+			"broadcastOperatorUserId": {
+				"Name": "Оператор трансляции",
+				"Hint": "Выбранный игрок управляет эфиром через окно Director (режимы камеры, отслеживаемый игрок, пресеты). Его команды исполняет клиент активного GM; без активного GM работают только открытие настроек OBS и остановка пресета. Назначение и снятие роли применяются после перезагрузки клиентов."
 			},
 			"obsModeGlobalDisable": {
 				"Name": "Глобальное отключение вида OBS",
