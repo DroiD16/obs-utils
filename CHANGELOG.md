@@ -1,3 +1,21 @@
+## Version 5.3.0-roll-queue.2
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- Broadcast Operator role. The GM designates one regular player in the new "Broadcast Operator" world setting (applies after clients reload); that player gets the Stream Director with the Controls and Presets tabs. Their changes — camera modes, tracked player, pause, canvas clamp, tracking mode, easing and duration, playing camera presets — are carried out by the active GM's client and written as ordinary world settings. Force-opening the OBS client's settings and stopping a running preset keep working even with no active GM.
+
+### Changed
+
+- The Director's no-GM warning now reacts while the window is open: controls disable the moment the last GM disconnects and re-enable on reconnect. Previously the state was frozen at open time.
+- Preset authoring buttons (add, rename, update, edit, delete) and Play are disabled while no GM is active; stopping a preset stays available. As a consequence, a non-GM Director in OBS mode can no longer start a preset while no GM is online.
+- When the broadcast operator plays a preset, the GM who currently owns the broadcast camera executes it, so a Co-DM camera handover is preserved.
+
+### Fixed
+
+- The stop-preset button tooltip showed a raw localization key instead of "Stop active preset".
+
 ## Version 5.3.0-roll-queue.1
 
 Fork release based on upstream OBS Utils 5.3.0.
