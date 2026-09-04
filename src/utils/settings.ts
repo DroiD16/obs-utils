@@ -2,7 +2,7 @@ import type { ReadyGame } from 'fvtt-types/configuration';
 import type { Readable, Writable } from 'svelte/store';
 import { writable } from 'svelte/store';
 import { ICCHOICES, MODULE_ID, NAME_TO_ICON, OOCCHOICES } from './const';
-import { isOBS } from './helpers';
+import { isBroadcastOperator, isOBS } from './helpers';
 
 export const OBSAction = {
 	SwitchScene: 'obs-utils.applications.obsRemote.switchScene',
@@ -19,6 +19,9 @@ export const OBS_MODIFIABLE_SETTINGS = new Set<ClientSettings.KeyFor<'obs-utils'
 	'clampCanvas',
 	'pauseCameraTracking',
 	'trackedUser',
+	'cameraTrackingMode',
+	'cameraSmoothing',
+	'cameraEasing',
 ]);
 
 export async function runMigrations(): Promise<void> {
@@ -44,7 +47,13 @@ export async function setSetting<K extends ClientSettings.KeyFor<'obs-utils'>>(s
 		ensureStore(settingName).set(currentValue);
 		return;
 	}
-	if (OBS_MODIFIABLE_SETTINGS.has(settingName) && isOBS() && getSetting('showDirectorInOBSMode') === true) {
+	if (
+		OBS_MODIFIABLE_SETTINGS.has(settingName)
+		&& (
+			(isOBS() && getSetting('showDirectorInOBSMode') === true)
+			|| isBroadcastOperator()
+		)
+	) {
 		const hasActiveGM = !!(game as ReadyGame).users?.some((u: User) => u.isGM && u.active);
 		if (!hasActiveGM) {
 			return;

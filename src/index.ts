@@ -3,7 +3,7 @@ import { ObsUtilsApi, registerDefaultTypes } from './utils/api.js';
 import { expandTokenHud, isGM } from './utils/canvas.ts';
 import { backfillIds } from './utils/cssInjection.ts';
 import { initDirectorStateBridge } from './utils/directorState.ts';
-import { isManualOBS, isOBS, removeBG } from './utils/helpers.js';
+import { isBroadcastOperator, isManualOBS, isOBS, removeBG } from './utils/helpers.js';
 import { registerKeybindings } from './utils/keybinds.ts';
 import { initOBS } from './utils/obs.ts';
 import { getSetting, runMigrations, setSetting } from './utils/settings.ts';
@@ -82,6 +82,14 @@ async function start() {
 				).map(e => [e.id, e.name]) ?? [[]],
 			),
 		);
+
+		// Broadcast operator is a regular player by definition — GMs already have
+		// the full Director, so only non-GM users are offered.
+		(game as ReadyGame)!.settings!.settings!.get('obs-utils.broadcastOperatorUserId')!.choices = Object.fromEntries(
+			[['none', (game as ReadyGame).i18n.localize('obs-utils.strings.broadcastOperatorNone')]].concat(
+				(game as ReadyGame | undefined)?.users?.filter((e: User) => !e.isGM).map(e => [e.id, e.name]) ?? [[]],
+			),
+		);
 	});
 
 	Hooks.on('canvasTearDown', deactivateViewportTracking);
@@ -138,6 +146,9 @@ function isDirectorUser() {
 		return true;
 	}
 	if (getSetting('showDirectorInOBSMode') && isOBS()) {
+		return true;
+	}
+	if (isBroadcastOperator()) {
 		return true;
 	}
 	return false;

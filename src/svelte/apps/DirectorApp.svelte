@@ -1,14 +1,28 @@
 <svelte:options runes={true} />
 <script lang='ts'>
-	import { getApi, getGM } from '../../utils/helpers.ts';
+	import { getApi, getGM, isBroadcastOperator } from '../../utils/helpers.ts';
 	import MountedExternal from '../utilities/MountedExternal.svelte';
 
-	const isDisabled = getGM()?.active !== true;
+	// Reactive: a GM leaving (or joining) while the window is open must gate the
+	// controls immediately, not on the next mount.
+	let isDisabled = $state(getGM()?.active !== true);
+	$effect(() => {
+		const onUserConnected = () => {
+			isDisabled = getGM()?.active !== true;
+		};
+		Hooks.on('userConnected', onUserConnected);
+		return () => Hooks.off('userConnected', onUserConnected);
+	});
+
+	// The operator only gets the two tabs they can act on. Keyed on the operator
+	// role, never on !isGM — a non-GM Director in OBS mode keeps all tabs.
+	const OPERATOR_TABS = new Set(['core.controls', 'core.presets']);
 
 	// Tabs come from the registry. Built-in tabs are pre-registered at module init;
 	// other modules can register their own via api.registerDirectorTab().
 	const tabs = $derived.by(() => {
 		return Array.from(getApi().directorTabs.values())
+			.filter(tab => !isBroadcastOperator() || OPERATOR_TABS.has(tab.key))
 			.sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
 	});
 

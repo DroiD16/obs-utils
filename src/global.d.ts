@@ -76,6 +76,7 @@ declare global {
 		'obs-utils.fixedPopupHeight': number;
 		'obs-utils.obsMode': boolean;
 		'obs-utils.obsModeUser': string;
+		'obs-utils.broadcastOperatorUserId': string;
 		'obs-utils.obsModeGlobalDisable': boolean;
 		'obs-utils.showKeybindingPopup': boolean;
 		'obs-utils.cameraTrackingMode': 'raw' | 'smooth' | 'dragRelease';

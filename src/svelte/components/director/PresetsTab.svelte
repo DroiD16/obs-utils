@@ -4,8 +4,13 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { makePreset, readPresets, writePresets } from '../../../utils/cameraPresets.ts';
 	import { getLocalViewport } from '../../../utils/canvas.ts';
-	import { getApi } from '../../../utils/helpers.ts';
-	import { broadcastStopPreset } from '../../../utils/socket.ts';
+	import { getApi, isBroadcastOperator } from '../../../utils/helpers.ts';
+	import { broadcastStopPreset, sendRequestPresetPlay } from '../../../utils/socket.ts';
+
+	const { disabled = false } = $props<{ disabled?: boolean }>();
+
+	// The operator only plays and stops presets; authoring stays with the GM.
+	const operator = isBroadcastOperator();
 
 	let currentScene = $state<any>((canvas as any)?.scene ?? null);
 	// initializer captures currentScene once — refreshFromCurrentScene keeps them in sync
@@ -60,6 +65,12 @@
 		expandedId = preset.id;
 	}
 	function applyPreset(p: CameraPreset) {
+		// The operator can't orchestrate under their own identity — a GM does it
+		// for them via the requestPresetPlay relay.
+		if (operator) {
+			sendRequestPresetPlay(p);
+			return;
+		}
 		getApi().playPreset(p);
 	}
 	async function updatePresetToCurrent(id: string) {
@@ -120,31 +131,35 @@
 		{/if}
 	</div>
 	<div class='preset-add-group'>
-		<button
-			type='button'
-			class='preset-add-btn'
-			onclick={addStaticPreset}
-			disabled={!currentScene}
-			title={game.i18n?.localize('obs-utils.applications.director.presetAddStatic')}
-		>
-			<i class='fas fa-camera'></i>
-			<span>{game.i18n?.localize('obs-utils.applications.director.presetAddStatic')}</span>
-		</button>
-		<button
-			type='button'
-			class='preset-add-btn'
-			onclick={addAnimationPreset}
-			disabled={!currentScene}
-			title={game.i18n?.localize('obs-utils.applications.director.presetAddAnimation')}
-		>
-			<i class='fas fa-film'></i>
-			<span>{game.i18n?.localize('obs-utils.applications.director.presetAddAnimation')}</span>
-		</button>
+		{#if !operator}
+			<button
+				type='button'
+				class='preset-add-btn'
+				onclick={addStaticPreset}
+				disabled={!currentScene || disabled}
+				title={game.i18n?.localize('obs-utils.applications.director.presetAddStatic')}
+			>
+				<i class='fas fa-camera'></i>
+				<span>{game.i18n?.localize('obs-utils.applications.director.presetAddStatic')}</span>
+			</button>
+			<button
+				type='button'
+				class='preset-add-btn'
+				onclick={addAnimationPreset}
+				disabled={!currentScene || disabled}
+				title={game.i18n?.localize('obs-utils.applications.director.presetAddAnimation')}
+			>
+				<i class='fas fa-film'></i>
+				<span>{game.i18n?.localize('obs-utils.applications.director.presetAddAnimation')}</span>
+			</button>
+		{/if}
+		<!-- Stop is a direct broadcast to the OBS client and must stay usable with
+			no active GM — the "GM crashed, looping preset on stream" emergency. -->
 		<button
 			type='button'
 			class='preset-add-btn danger'
 			onclick={broadcastStopPreset}
-			title={game.i18n?.localize('obs-utils.applications.director.presetStopAll') ?? 'Stop active preset'}
+			title={`${game.i18n?.localize('obs-utils.applications.director.presetStopAll') ?? 'Stop active preset'} — ${game.i18n?.localize('obs-utils.applications.director.worksWithoutGM')}`}
 			aria-label={game.i18n?.localize('obs-utils.applications.director.presetStopAll') ?? 'Stop active preset'}
 		>
 			<i class='fas fa-stop'></i>
@@ -166,12 +181,14 @@
 						type='text'
 						class='preset-name'
 						value={p.name}
+						readonly={operator || disabled}
 						onchange={e => renamePreset(p.id, (e.currentTarget as HTMLInputElement).value)}
 					/>
 					<button
 						type='button'
 						class='preset-action'
 						onclick={() => applyPreset(p)}
+						{disabled}
 						title={isAnimation
 							? game.i18n?.localize('obs-utils.applications.director.presetPlay')
 							: game.i18n?.localize('obs-utils.applications.director.presetPanTo')}
@@ -185,32 +202,37 @@
 							<i class='fas fa-arrow-right'></i>
 						{/if}
 					</button>
-					{#if isAnimation}
+					{#if !operator}
+						{#if isAnimation}
+							<button
+								type='button'
+								class='preset-action'
+								onclick={() => editPreset(p)}
+								{disabled}
+								title={game.i18n?.localize('obs-utils.applications.director.keyframeEditor.expandLabel')}
+								aria-label={game.i18n?.localize('obs-utils.applications.director.keyframeEditor.expandLabel')}
+							>
+								<i class='fas fa-pen-to-square'></i>
+							</button>
+						{:else}
+							<button
+								type='button'
+								class='preset-action'
+								onclick={() => updatePresetToCurrent(p.id)}
+								{disabled}
+								title={game.i18n?.localize('obs-utils.applications.director.presetUpdate')}
+								aria-label={game.i18n?.localize('obs-utils.applications.director.presetUpdate')}
+							><i class='fas fa-arrow-down-to-bracket'></i></button>
+						{/if}
 						<button
 							type='button'
-							class='preset-action'
-							onclick={() => editPreset(p)}
-							title={game.i18n?.localize('obs-utils.applications.director.keyframeEditor.expandLabel')}
-							aria-label={game.i18n?.localize('obs-utils.applications.director.keyframeEditor.expandLabel')}
-						>
-							<i class='fas fa-pen-to-square'></i>
-						</button>
-					{:else}
-						<button
-							type='button'
-							class='preset-action'
-							onclick={() => updatePresetToCurrent(p.id)}
-							title={game.i18n?.localize('obs-utils.applications.director.presetUpdate')}
-							aria-label={game.i18n?.localize('obs-utils.applications.director.presetUpdate')}
-						><i class='fas fa-arrow-down-to-bracket'></i></button>
+							class='preset-action danger'
+							onclick={() => deletePreset(p.id)}
+							{disabled}
+							title={game.i18n?.localize('obs-utils.applications.director.presetDelete')}
+							aria-label={game.i18n?.localize('obs-utils.applications.director.presetDelete')}
+						><i class='fas fa-trash'></i></button>
 					{/if}
-					<button
-						type='button'
-						class='preset-action danger'
-						onclick={() => deletePreset(p.id)}
-						title={game.i18n?.localize('obs-utils.applications.director.presetDelete')}
-						aria-label={game.i18n?.localize('obs-utils.applications.director.presetDelete')}
-					><i class='fas fa-trash'></i></button>
 				</div>
 			</li>
 		{/each}
@@ -339,9 +361,13 @@
 			opacity 0.75
 			font-size 11px
 
-			&:hover
+			&:hover:not(:disabled)
 				opacity 1
 				background rgba(255, 255, 255, 0.06)
+
+			&:disabled
+				opacity 0.35
+				cursor not-allowed
 
 			&.danger:hover
 				background rgba(220, 60, 60, 0.15)

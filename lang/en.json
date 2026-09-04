@@ -17,6 +17,7 @@
 			"avInputPlaceholder": "Enter text or search",
 			"customGroup": "Custom",
 			"triggerGroup": "Trigger",
+			"broadcastOperatorNone": "Not assigned",
 			"iconPlaceholder": "Icon",
 			"true": "True",
 			"false": "False",
@@ -78,6 +79,8 @@
 				"levelBlockedShort": "Can't show {level}",
 				"forceOpenSettingsForOBSUser": "Force Open Settings Menu for OBS User",
 				"noGMWarning": "No GM is currently logged in, director settings cannot be changed",
+				"worksWithoutGM": "Works even without an active GM",
+				"presetStopAll": "Stop active preset",
 				"cameraSmoothingHeader": "Camera Smoothing",
 				"easing": "Easing",
 				"duration": "Duration",
@@ -565,6 +568,10 @@
 			"obsModeUser": {
 				"Name": "Designate User as OBS Client",
 				"Hint": "Treat the selected user's browser as OBS — UI hidden, overlays rendered."
+			},
+			"broadcastOperatorUserId": {
+				"Name": "Broadcast Operator",
+				"Hint": "Lets the selected player drive the stream through the Director window (camera modes, tracked player, presets). Their commands are carried out by the active GM's client; without an active GM only opening the OBS settings and stopping a preset keep working. Assigning or removing the role takes effect after clients reload."
 			},
 			"obsModeGlobalDisable": {
 				"Name": "Disable OBS Mode for Everyone",
