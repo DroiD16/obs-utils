@@ -348,8 +348,8 @@ function handleStopPreset() {
 // ─── Operator preset relay ────────────────────────────────────────────────
 // The broadcast operator can't run orchestratePresetPlay — it writes world
 // settings under the clicking user. Instead the operator asks the GMs; the
-// primary GM (same election as the settings relay in settingsSetup.ts) runs
-// the ordinary orchestration under their own identity.
+// GM who currently owns the broadcast camera (getActiveGM) runs the ordinary
+// orchestration under their own identity.
 
 /**
  * Operator-side sender. Re-checks the role right before emitting — not as

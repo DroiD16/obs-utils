@@ -14,21 +14,22 @@ test.describe('Broadcast Operator', () => {
 			() => window.game.user.id,
 		);
 
-		// GM assigns the operator; the role applies after the client reloads.
-		await gmPage.evaluate(
-			// @ts-expect-error run in plain js
-			id => window.game.settings.set('obs-utils', 'broadcastOperatorUserId', id),
-			playerId,
-		);
-		await playerPage.reload();
-		// @ts-expect-error run in plain js
-		await playerPage.waitForFunction(() => window.game?.ready);
-
 		const before = await gmPage.evaluate(
 			// @ts-expect-error run in plain js
 			() => window.game.settings.get('obs-utils', 'pauseCameraTracking'),
 		);
 		try {
+			// GM assigns the operator; the role applies after the client reloads.
+			// Inside the try so a failed reload still reaches the revocation below.
+			await gmPage.evaluate(
+				// @ts-expect-error run in plain js
+				id => window.game.settings.set('obs-utils', 'broadcastOperatorUserId', id),
+				playerId,
+			);
+			await playerPage.reload();
+			// @ts-expect-error run in plain js
+			await playerPage.waitForFunction(() => window.game?.ready);
+
 			// The Director button appears for the operator; the window opens with
 			// exactly the Controls and Presets tabs.
 			await playerPage.locator('button[data-tool=openStreamDirector]').click();
@@ -73,6 +74,9 @@ test.describe('Broadcast Operator', () => {
 			// @ts-expect-error run in plain js
 			await playerPage.waitForFunction(() => window.game?.ready);
 		}
+		// Anchor on the toolbar having rendered before asserting the absence, so
+		// this can't pass vacuously against a not-yet-painted controls bar.
+		await expect(playerPage.locator('button[data-tool]').first()).toBeVisible();
 		await expect(playerPage.locator('button[data-tool=openStreamDirector]')).toHaveCount(0);
 	});
 });
