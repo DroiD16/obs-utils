@@ -66,12 +66,14 @@ describe('directorApp tabs and gate', () => {
 	it('the no-GM gate reacts to a GM disconnecting while the window is open', () => {
 		const { instance, target } = mountApp();
 		expect(target.querySelector('.warning')).toBeNull();
+		expect(target.querySelector('.dummy-tab')?.getAttribute('data-disabled')).toBe('false');
 
 		getGMMock.mockReturnValue(undefined);
 		userConnectedCb!();
 		flushSync();
 
 		expect(target.querySelector('.warning')).not.toBeNull();
+		expect(target.querySelector('.dummy-tab')?.getAttribute('data-disabled')).toBe('true');
 		unmount(instance);
 	});
 });

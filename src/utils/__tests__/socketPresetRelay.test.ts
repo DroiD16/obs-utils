@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isBroadcastOperator } from '../helpers.ts';
+import { getActiveGM, isBroadcastOperator } from '../helpers.ts';
 import { getSetting, setSetting } from '../settings.ts';
 
 vi.mock('../cameraSequencePlayer.ts', () => ({ playSequence: vi.fn() }));
@@ -10,9 +10,14 @@ vi.mock('../canvas', () => ({
 	VIEWPORT_DATA: new Map(),
 	viewportChanged: vi.fn(),
 }));
-vi.mock('../helpers.ts', () => ({ isBroadcastOperator: vi.fn(() => false), isOBS: vi.fn(() => false) }));
+vi.mock('../helpers.ts', () => ({
+	getActiveGM: vi.fn(),
+	isBroadcastOperator: vi.fn(() => false),
+	isOBS: vi.fn(() => false),
+}));
 vi.mock('../settings.ts', () => ({ getSetting: vi.fn(), setSetting: vi.fn() }));
 
+const getActiveGMMock = vi.mocked(getActiveGM);
 const isBroadcastOperatorMock = vi.mocked(isBroadcastOperator);
 const getSettingMock = vi.mocked(getSetting);
 const setSettingMock = vi.mocked(setSetting);
@@ -53,6 +58,7 @@ beforeEach(() => {
 	socketEmit.mockReset();
 	setSettingMock.mockReset();
 	isBroadcastOperatorMock.mockReturnValue(false);
+	getActiveGMMock.mockReturnValue(GM_PRIMARY as any);
 	// Values that make orchestratePresetPlay perform every write.
 	getSettingMock.mockImplementation((key: string) => {
 		if (key === 'defaultInCombat' || key === 'defaultOutOfCombat') return 'trackall';
@@ -89,7 +95,7 @@ describe('requestPresetPlay handler', () => {
 		expect(socketEmit).not.toHaveBeenCalled();
 	});
 
-	it('primary GM orchestrates exactly once: claims control and broadcasts the preset', async () => {
+	it('the camera-owning GM orchestrates exactly once: claims control and broadcasts the preset', async () => {
 		stubGame(GM_PRIMARY);
 		await handleEvent({ eventType: 'requestPresetPlay', targetUser: undefined, payload: { preset: PRESET } });
 		expect(setSettingMock).toHaveBeenCalledWith('defaultInCombat', 'cloneDM');
@@ -101,10 +107,25 @@ describe('requestPresetPlay handler', () => {
 		expect(playEmits[0][1].payload).toEqual({ preset: PRESET });
 	});
 
-	it('secondary GM does not orchestrate, so the preset is not doubled', async () => {
+	it('a GM who does not own the camera does not orchestrate, so the preset is not doubled', async () => {
 		stubGame(GM_SECONDARY);
 		await handleEvent({ eventType: 'requestPresetPlay', targetUser: undefined, payload: { preset: PRESET } });
 		expect(setSettingMock).not.toHaveBeenCalled();
 		expect(socketEmit).not.toHaveBeenCalled();
+	});
+
+	it('a Co-DM handover is preserved: the GM holding activeGMUserId executes, not the first GM', async () => {
+		getActiveGMMock.mockReturnValue(GM_SECONDARY as any);
+
+		stubGame(GM_PRIMARY);
+		await handleEvent({ eventType: 'requestPresetPlay', targetUser: undefined, payload: { preset: PRESET } });
+		expect(setSettingMock).not.toHaveBeenCalled();
+		expect(socketEmit).not.toHaveBeenCalled();
+
+		stubGame(GM_SECONDARY);
+		await handleEvent({ eventType: 'requestPresetPlay', targetUser: undefined, payload: { preset: PRESET } });
+		expect(setSettingMock).toHaveBeenCalledWith('activeGMUserId', 'gm-2');
+		const playEmits = socketEmit.mock.calls.filter(([, data]) => data?.eventType === 'playPreset');
+		expect(playEmits).toHaveLength(1);
 	});
 });
