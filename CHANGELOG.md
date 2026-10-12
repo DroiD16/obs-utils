@@ -1,3 +1,15 @@
+## Version 5.3.0-roll-queue.3
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- `label` and `shortFormula` fields on `core.onPlayerRoll`, for banners with little room. `label` shortens dnd5e check and save flavors ("Wisdom (Perception) Check (Advantage)" → "Perception", "Constitution Saving Throw" → "Constitution Save") and passes any other flavor through. `shortFormula` folds flat modifiers into one number ("1d20 + 2 + 1" → "1d20+3").
+
+### Fixed
+
+- Animated overlays start on their initial track as soon as they mount. Previously that frame never reached the renderer, so a hidden roll banner showed at full opacity, with empty text, from page load until the first trigger.
+
 ## Version 5.3.0-roll-queue.2
 
 Fork release based on upstream OBS Utils 5.3.0.

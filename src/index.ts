@@ -6,6 +6,7 @@ import { initDirectorStateBridge } from './utils/directorState.ts';
 import { isBroadcastOperator, isManualOBS, isOBS, removeBG } from './utils/helpers.js';
 import { registerKeybindings } from './utils/keybinds.ts';
 import { initOBS } from './utils/obs.ts';
+import { shortRollFormula, shortRollLabel } from './utils/rollText.ts';
 import { getSetting, runMigrations, setSetting } from './utils/settings.ts';
 import { initOverlayDefaultsHooks, initSettings } from './utils/settingsSetup.ts';
 import { activateViewportTracking, deactivateViewportTracking, onCanvasReadyEmit, socketCanvas } from './utils/socket.js';
@@ -122,7 +123,9 @@ async function start() {
 				roll: rolls[0],
 				total,
 				formula,
+				shortFormula: shortRollFormula(formula),
 				flavor: String(message.flavor ?? ''),
+				label: shortRollLabel(String(message.flavor ?? '')),
 				isCritical: firstD20 === 20,
 				isFumble: firstD20 === 1,
 			});

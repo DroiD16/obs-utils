@@ -542,7 +542,9 @@
 						"roll": "Roll Object",
 						"total": "Roll Total",
 						"formula": "Roll Formula",
+						"shortFormula": "Roll Formula (Compact)",
 						"flavor": "Roll Flavor",
+						"label": "Roll Label (Short Flavor)",
 						"isCritical": "Is Critical (Nat 20)",
 						"isFumble": "Is Fumble (Nat 1)"
 					}
