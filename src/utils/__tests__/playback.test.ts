@@ -101,6 +101,27 @@ function userContext(id: string): RenderContext {
 
 // ─── snapshot payload ─────────────────────────────────────────────────────────
 
+describe('playbackEngine initial frame', () => {
+	it('notifies the renderer about the initial track frame on mount', () => {
+		const onFramesChanged = vi.fn();
+		const frames = new Map<string, OverlayFrame>();
+		const engine = new PlaybackEngine(new TriggerRegistry(), frames, onFramesChanged);
+		engine.mountTile(makeOverlay(), 'singleton', { key: 'singleton' });
+
+		expect(frames.get('ov1:singleton')?.activeTrackId).toBe('hidden');
+		expect(onFramesChanged).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not notify again when an equivalent overlay is re-mounted', () => {
+		const onFramesChanged = vi.fn();
+		const engine = new PlaybackEngine(new TriggerRegistry(), new Map(), onFramesChanged);
+		engine.mountTile(makeOverlay(), 'singleton', { key: 'singleton' });
+		engine.mountTile(makeOverlay(), 'singleton', { key: 'singleton' });
+
+		expect(onFramesChanged).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe('playbackEngine trigger payload snapshot', () => {
 	it('pins the firing payload onto the tile frame', () => {
 		const h = mount(makeOverlay());

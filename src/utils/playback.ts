@@ -82,6 +82,10 @@ export class PlaybackEngine {
 		this.states.set(key, state);
 		this.subscribeTransitions(overlay);
 		this.computeFrame(state);
+		// `tick` only notifies when a frame differs from the stored one, and this
+		// initial frame is already stored, so a static initial track would never
+		// reach the renderer: the tile would sit at full opacity until a trigger.
+		this.onFramesChanged();
 	}
 
 	unmountTile(overlayId: string, tileKey: string): void {
