@@ -468,6 +468,7 @@ function registerBuiltinOverlayTriggers() {
 		icon: 'fas fa-dice-d20',
 		payloadSchema: [
 			{ key: 'actor', type: 'Actor', label: 'obs-utils.triggers.core.onPlayerRoll.fields.actor', display: true, filter: true },
+			{ key: 'speakerName', type: 'string', label: 'obs-utils.triggers.core.onPlayerRoll.fields.speakerName', display: true, filter: true },
 			{ key: 'roll', type: 'Roll', label: 'obs-utils.triggers.core.onPlayerRoll.fields.roll', display: true, filter: false },
 			{ key: 'total', type: 'number', label: 'obs-utils.triggers.core.onPlayerRoll.fields.total', display: true, filter: true },
 			{ key: 'formula', type: 'string', label: 'obs-utils.triggers.core.onPlayerRoll.fields.formula', display: true, filter: true },

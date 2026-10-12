@@ -119,6 +119,7 @@ async function start() {
 			const firstD20 = d20?.results?.[0]?.result;
 			api.fireOverlayTrigger('core.onPlayerRoll', {
 				actor,
+				speakerName: String(actor?.name || message.speaker?.alias || message.author?.name || ''),
 				user: message.user,
 				roll: rolls[0],
 				total,

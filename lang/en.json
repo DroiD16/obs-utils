@@ -539,6 +539,7 @@
 					"name": "Player Roll",
 					"fields": {
 						"actor": "Rolling Actor",
+						"speakerName": "Speaker Name (Actor, Else Chat Alias)",
 						"roll": "Roll Object",
 						"total": "Roll Total",
 						"formula": "Roll Formula",

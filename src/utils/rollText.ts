@@ -3,23 +3,45 @@
 // "1d20 + 2 + 1".
 
 const ROLL_MODE_SUFFIX = /\s*\((?:Advantage|Disadvantage|Normal)\)\s*$/i;
+// dnd5e item rolls: "<item> - Attack Roll" / "Damage Roll" / "Healing Roll" / "Other Formula".
+const ITEM_ROLL = /^(.+) - (?:Attack Roll|Damage Roll|Healing Roll|Other Formula)$/;
 
-/**
- * Short label from a chat-message flavor. Recognises the dnd5e check and save
- * flavors; anything else comes back trimmed and stripped of HTML.
- *  - "Wisdom (Perception) Check (Advantage)" → "Perception"
- *  - "Charisma Ability Check" → "Charisma"
- *  - "Constitution Saving Throw" → "Constitution Save"
- */
-export function shortRollLabel(flavor: string): string {
-	const text = flavor.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().replace(ROLL_MODE_SUFFIX, '');
+/** Label for a dnd5e check or save flavor, or undefined when `text` is neither. */
+function checkLabel(text: string): string | undefined {
 	const skill = text.match(/^\S+ \((.+)\) Check$/);
 	if (skill) return skill[1];
 	const ability = text.match(/^(.+) Ability Check$/);
 	if (ability) return ability[1];
 	const save = text.match(/^(.+) Saving Throw$/);
 	if (save) return `${save[1]} Save`;
-	return text;
+	const tool = text.match(/^(.+) Check$/);
+	if (tool) return tool[1];
+	return undefined;
+}
+
+/**
+ * Short label from a chat-message flavor. Recognises the dnd5e roll flavors;
+ * anything else comes back trimmed and stripped of HTML, and an empty flavor
+ * becomes "Roll".
+ *  - "Wisdom (Perception) Check (Advantage)" → "Perception"
+ *  - "Charisma Ability Check" → "Charisma"
+ *  - "Constitution Saving Throw" → "Constitution Save"
+ *  - "Thieves' Tools Check" → "Thieves' Tools"
+ *  - "Scimitar - Attack Roll", "Bite - Damage Roll" → "Scimitar", "Bite"
+ *  - "Fraen Torn - Charisma (Persuasion) Check" (actor-prefixed) → "Persuasion"
+ */
+export function shortRollLabel(flavor: string): string {
+	const text = flavor.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().replace(ROLL_MODE_SUFFIX, '');
+	if (!text) return 'Roll';
+	const item = text.match(ITEM_ROLL);
+	if (item) return item[1];
+	const check = checkLabel(text);
+	const dash = text.lastIndexOf(' - ');
+	if (dash > 0) {
+		const prefixed = checkLabel(text.slice(dash + 3));
+		if (prefixed) return prefixed;
+	}
+	return check ?? text;
 }
 
 /**
