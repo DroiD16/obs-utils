@@ -1,3 +1,15 @@
+## Version 5.3.0-roll-queue.4
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- `speakerName` field on `core.onPlayerRoll`: the rolling actor's name, else the chat speaker alias, else the author's name. A GM rolling without a token still gets a name on the banner.
+
+### Changed
+
+- `label` shortens more dnd5e flavors. Item rolls keep the item name ("Scimitar - Attack Roll" → "Scimitar", "Bite - Damage Roll" → "Bite"), tool checks drop "Check", and actor-prefixed checks such as "Fraen Torn - Charisma (Persuasion) Check" become "Persuasion". A roll without a flavor is labelled "Roll".
+
 ## Version 5.3.0-roll-queue.3
 
 Fork release based on upstream OBS Utils 5.3.0.
