@@ -13,6 +13,7 @@ import AVBoolImageComponent from '../svelte/streamoverlays/overlaycomponents/AVB
 import AVImageDisplayComponent from '../svelte/streamoverlays/overlaycomponents/AVImageDisplayComponent.svelte';
 import AVMultiIconComponent from '../svelte/streamoverlays/overlaycomponents/AVMultiIconComponent.svelte';
 import AVMultiImageComponent from '../svelte/streamoverlays/overlaycomponents/AVMultiImageComponent.svelte';
+import AVTierImageComponent from '../svelte/streamoverlays/overlaycomponents/AVTierImageComponent.svelte';
 import FAIconComponent from '../svelte/streamoverlays/overlaycomponents/FAIconComponent.svelte';
 import ProgressBarComponent from '../svelte/streamoverlays/overlaycomponents/ProgressBarComponent.svelte';
 import SingleLineOverlay from '../svelte/streamoverlays/SingleLineOverlay.svelte';
@@ -366,6 +367,11 @@ export class OverlayType {
 	}
 }
 
+/** Image path of one `tierimg` rule segment (`>50:green.png` or a bare fallback). */
+function tierImageOf(segment: string): string {
+	return segment.replace(/^(?:>=|>)-?\d+(?:\.\d+)?:/, '');
+}
+
 export function registerDefaultTypes() {
 	const singleLineOverlay = new OverlayType(SingleLineOverlay);
 	const builtinComponents: Array<[key: string, nameKey: string, component: Component<any>]> = [
@@ -377,6 +383,7 @@ export function registerDefaultTypes() {
 		['micoav', 'obs-utils.overlays.multiIconAV.name', AVMultiIconComponent],
 		['mimgav', 'obs-utils.overlays.multiImageAV.name', AVMultiImageComponent],
 		['pb', 'obs-utils.overlays.progressBar.name', ProgressBarComponent],
+		['tierimg', 'obs-utils.overlays.tierImageAV.name', AVTierImageComponent],
 	];
 	for (const [key, nameKey, component] of builtinComponents) {
 		singleLineOverlay.registerComponent(key, nameKey, component);
@@ -414,6 +421,16 @@ export function registerDefaultTypes() {
 			if (parts[3]) parts[3] = m.get(parts[3]) ?? parts[3];
 			return parts.join(';');
 		},
+	});
+
+	// tierimg: "valuePaths;maxPath;<op><pct>:img;...;fallbackImg" — slots 2+ carry images
+	singleLineOverlay.registerComponentImageSlots('tierimg', {
+		extract: d => d.split(';').slice(2).map(tierImageOf).filter(p => p.length > 0),
+		rewrite: (d, m) => d.split(';').map((part, i) => {
+			if (i < 2) return part;
+			const img = tierImageOf(part);
+			return img && m.has(img) ? part.slice(0, part.length - img.length) + m.get(img)! : part;
+		}).join(';'),
 	});
 
 	// Register Legacy Names

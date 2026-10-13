@@ -120,6 +120,36 @@ function asNonNegativeNumber(raw: unknown): number {
 	return Number.isNaN(n) || n < 0 ? 0 : n;
 }
 
+const TIER_RULE = /^(>=|>)(-?\d+(?:\.\d+)?):(.*)$/;
+
+/**
+ * Pick one image by how full a value is, e.g. a health gem:
+ * `system.attributes.hp.value+system.attributes.hp.temp;system.attributes.hp.effectiveMax;>50:green.png;>=25:yellow.png;>0:red.png;black.png`.
+ * The value is the sum of the `+`-joined paths (missing ones count as 0), the
+ * percentage is clamped to 0..100, and the first rule it satisfies wins; the
+ * one segment without a condition is the fallback. A missing or zero max
+ * yields no image at all, so a broken actor shows nothing instead of a tier.
+ */
+function resolveTierImage(data: string, actor: unknown, payload: Record<string, unknown> | undefined): ResolvedValues {
+	const [valuePaths = '', maxPath = '', ...rules] = data.split(';');
+	const value = valuePaths.split('+')
+		.reduce((sum, path) => sum + (Number(resolveSinglePath(path.trim(), actor, payload)) || 0), 0);
+	const max = Number(resolveSinglePath(maxPath.trim(), actor, payload));
+	if (!(max > 0)) return { value: '', pct: '' };
+	const pct = Math.min(100, Math.max(0, (value / max) * 100));
+	let fallback = '';
+	for (const rule of rules) {
+		const m = TIER_RULE.exec(rule.trim());
+		if (!m) {
+			fallback = rule.trim();
+			continue;
+		}
+		const threshold = Number(m[2]);
+		if (m[1] === '>' ? pct > threshold : pct >= threshold) return { value: m[3].trim(), pct };
+	}
+	return { value: fallback, pct };
+}
+
 // URLs contain dots and slashes — restrict path-detection to word chars + dots.
 function looksLikeDataPath(data: string): boolean {
 	if (data.startsWith('trigger.')) return true;
@@ -182,6 +212,9 @@ const RESOLVERS: Record<string, ResolveFn> = {
 		const value2 = Math.max(0, max - value1);
 		return { value1, value2, image1: parts[1] ?? '', image2: parts[3] ?? '' };
 	},
+
+	// data: valuePath[+valuePath...];maxPath;<op><pct>:image;...;fallbackImage
+	tierimg: (data, actor, payload) => resolveTierImage(data, actor, payload),
 
 	// data: valuePath;maxPath
 	pb: (data, actor, payload) => {

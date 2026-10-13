@@ -54,5 +54,6 @@ export function registerUI() {
 		t.registerComponentEditor('micoav', MultiAVIconEditor, true);
 		t.registerComponentEditor('mimgav', MultiAVImageEditor, true);
 		t.registerComponentEditor('pb', MultiAVEditor, true);
+		t.registerComponentEditor('tierimg', AVEditor);
 	}
 }

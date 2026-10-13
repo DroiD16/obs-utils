@@ -1,3 +1,11 @@
+## Version 5.3.0-roll-queue.5
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- "Image by Fill" overlay component (`tierimg`). It shows one image picked by how full a value is, for example a health gem that turns from green to yellow to red to black. Data format: `valuePath[+valuePath...];maxPath;>50:green.png;>=25:yellow.png;>0:red.png;black.png`. The `+`-joined paths are summed, so current and temporary hit points count together. The first rule the percentage meets wins, and the segment without a condition is the fallback. A missing or zero max shows no image.
+
 ## Version 5.3.0-roll-queue.4
 
 Fork release based on upstream OBS Utils 5.3.0.

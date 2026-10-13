@@ -526,6 +526,9 @@
 			"progressBar": {
 				"name": "Progress Bar"
 			},
+			"tierImageAV": {
+				"name": "Image by Fill"
+			},
 			"simpleOverlay": {
 				"name": "Inline"
 			},

@@ -515,6 +515,9 @@
 			"progressBar": {
 				"name": "Шкала прогресса"
 			},
+			"tierImageAV": {
+				"name": "Картинка по заполнению"
+			},
 			"simpleOverlay": {
 				"name": "Simple Overlay"
 			},
