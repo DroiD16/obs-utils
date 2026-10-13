@@ -48,6 +48,7 @@
 			case 'micoav': return 'fas fa-grip';
 			case 'mimgav': return 'fas fa-images';
 			case 'pb': return 'fas fa-chart-line';
+			case 'tierimg': return 'fas fa-gem';
 			default: return 'fas fa-cube';
 		}
 	}
