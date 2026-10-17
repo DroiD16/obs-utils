@@ -1,4 +1,4 @@
-import type { OverlayFrame } from '../render.ts';
+import type { OverlayFrame, RenderContext } from '../render.ts';
 import type { OverlayData } from '../types.ts';
 import { expect, it, vi } from 'vitest';
 import { PlaybackEngine } from '../playback.ts';
@@ -17,6 +17,7 @@ it('restores one subscription per trigger when stopped playback is restarted', (
 		type: 'wysiwyg',
 		style: '',
 		config: {},
+		tileBy: 'actors',
 		components: [],
 		animation: {
 			initialTrackId: 'idle',
@@ -25,8 +26,8 @@ it('restores one subscription per trigger when stopped playback is restarted', (
 		},
 	} as OverlayData;
 	try {
-		engine.mountTile(overlay, 'actor:a');
-		engine.mountTile(overlay, 'actor:b');
+		engine.mountTile(overlay, 'actor:a', { key: 'actor:a', actor: { id: 'a' } } as RenderContext);
+		engine.mountTile(overlay, 'actor:b', { key: 'actor:b', actor: { id: 'b' } } as RenderContext);
 		engine.start();
 		engine.stop();
 		expect(registry.list()[0].subscriberCount).toBe(0);
@@ -36,8 +37,11 @@ it('restores one subscription per trigger when stopped playback is restarted', (
 		changed.mockClear();
 		registry.fire('test', { actor: { id: 'a' } });
 		expect(frames.get('restart:actor:a')?.activeTrackId).toBe('reaction');
-		expect(frames.get('restart:actor:b')?.activeTrackId).toBe('reaction');
+		expect(frames.get('restart:actor:b')?.activeTrackId).toBe('idle');
 		expect(changed).toHaveBeenCalledOnce();
+		registry.fire('test', { actor: { id: 'b' } });
+		expect(frames.get('restart:actor:b')?.activeTrackId).toBe('reaction');
+		expect(changed).toHaveBeenCalledTimes(2);
 	} finally {
 		engine.stop();
 		registry.destroy();

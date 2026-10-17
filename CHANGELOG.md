@@ -1,3 +1,15 @@
+## Version 5.3.1-roll-queue.1
+
+Fork release based on upstream OBS Utils 5.3.1. Keeps trigger queues, Broadcast Operator, roll labels, Image by Fill, and the existing translations.
+
+### Fixed
+
+- Imported overlays keep their animation bindings after component IDs change.
+- Overlay events resume after playback is stopped and restarted.
+- Removing an event also removes its Foundry hook subscriptions.
+- Camera updates that change only position or zoom keep the other viewport values.
+- Editors recognize actor name and portrait fields as dynamic data.
+
 ## Version 5.3.0-roll-queue.5
 
 Fork release based on upstream OBS Utils 5.3.0.
