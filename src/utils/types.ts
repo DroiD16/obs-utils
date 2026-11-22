@@ -98,6 +98,19 @@ export function generateId(): string {
  */
 export type OverlayTileMode = 'actors' | 'players' | 'users' | 'once';
 
+/**
+ * Per-tile FIFO for triggered overlays. While a tile is showing (anything but
+ * the initial track), further triggers are held and replayed one at a time
+ * once the tile returns to the initial track.
+ */
+export interface OverlayQueueConfig {
+	enabled: boolean;
+	/** Track whose `transition-on-end` leads to the hide phase; its `durationMs` is the normal idle hold. */
+	idleTrackId: string;
+	/** Shortened idle hold (ms) while at least one trigger is queued. */
+	queueIdleMs: number;
+}
+
 export class OverlayData {
 	type: string;
 	components: OverlayComponentData[];
@@ -111,6 +124,8 @@ export class OverlayData {
 	 */
 	animation?: OverlayAnimationData;
 	tileBy?: OverlayTileMode;
+	/** Absent ⇒ triggers transition the tile immediately, as before. */
+	queue?: OverlayQueueConfig;
 	id?: string;
 	customCSS?: string;
 

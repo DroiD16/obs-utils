@@ -1,7 +1,12 @@
 <svelte:options runes={true} />
 <script lang='ts'>
+	import type { OverlayTrack } from '../../utils/overlayAnimation.ts';
 	import type { OverlayData, OverlayTileMode } from '../../utils/types.ts';
 	import { getApi } from '../../utils/helpers.ts';
+	import { validateQueueConfig } from '../../utils/playback.ts';
+
+	const QUEUE_KEY = 'obs-utils.applications.overlayEditor.queue';
+	const DEFAULT_QUEUED_IDLE_MS = 900;
 
 	const {
 		layer,
@@ -60,6 +65,70 @@
 		commit();
 	}
 
+	// `commit()` writes the same `OverlayData` objects back into a new array, so
+	// edits made in place here never change the `layer` reference and nothing
+	// downstream of it re-renders on its own. Bumping `rev` is what re-renders
+	// the queue section, exactly as `ComponentList`/`LayersPanel` do.
+	let rev = $state(0);
+
+	// Only a `transition-on-end` track has a hide phase to hand over to, so only
+	// those can act as the idle hold the queue shortens.
+	function transitionOnEndTracks(l: OverlayData, _rev: number): OverlayTrack[] {
+		return (l.animation?.tracks ?? []).filter((t: OverlayTrack) => t.behavior.type === 'transition-on-end');
+	}
+
+	// A fresh object every time is the point: `layer.queue` is edited in place, so
+	// handing Svelte the same reference back would propagate nothing to the
+	// fields below. Snapshotting keeps them reactive without a `{#key}` block,
+	// which would remount the inputs and steal focus from the one being edited.
+	function queueSnapshot(l: OverlayData, _rev: number) {
+		const q = l.queue;
+		return {
+			enabled: q?.enabled ?? false,
+			idleTrackId: q?.idleTrackId ?? '',
+			queueIdleMs: q?.queueIdleMs ?? DEFAULT_QUEUED_IDLE_MS,
+		};
+	}
+
+	// The same verdict the playback engine falls open on, so the warnings here
+	// cannot drift from what the runtime actually refuses to queue.
+	function queueStatus(l: OverlayData, _rev: number) {
+		return validateQueueConfig(l);
+	}
+
+	const idleTrackOptions = $derived.by(() => transitionOnEndTracks(layer, rev));
+	const queue = $derived.by(() => queueSnapshot(layer, rev));
+	const status = $derived.by(() => queueStatus(layer, rev));
+	const idleTrack = $derived.by(() => idleTrackOptions.find((t: OverlayTrack) => t.id === queue.idleTrackId));
+
+	function onQueueToggle(e: Event) {
+		const enabled = (e.currentTarget as HTMLInputElement).checked;
+		layer.queue = {
+			enabled,
+			idleTrackId: layer.queue?.idleTrackId ?? idleTrackOptions[0]?.id ?? '',
+			queueIdleMs: layer.queue?.queueIdleMs ?? DEFAULT_QUEUED_IDLE_MS,
+		};
+		commit();
+		rev++;
+	}
+
+	function onQueueIdleTrack(e: Event) {
+		if (!layer.queue) return;
+		layer.queue.idleTrackId = (e.currentTarget as HTMLSelectElement).value;
+		commit();
+		rev++;
+	}
+
+	function onQueuedIdleMs(e: Event) {
+		if (!layer.queue) return;
+		const v = Number((e.currentTarget as HTMLInputElement).value);
+		layer.queue.queueIdleMs = Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0;
+		commit();
+		// Nothing else depends on this value, so instead of re-rendering the field
+		// the user is typing in, write the clamped value back to the input.
+		(e.currentTarget as HTMLInputElement).value = String(layer.queue.queueIdleMs);
+	}
+
 	function onCanvasWidth(e: Event) {
 		const v = Number((e.currentTarget as HTMLInputElement).value) || 0;
 		layer.config = { ...(layer.config ?? {}), w: Math.max(1, v) };
@@ -106,6 +175,54 @@
 		</label>
 	</section>
 
+	{#if layer.animation}
+		<section class='queue-section'>
+			<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.title`) ?? 'Trigger queue'}</span>
+			<label class='field checkbox'>
+				<input type='checkbox' checked={queue.enabled} onchange={onQueueToggle} />
+				<span>{game.i18n?.localize(`${QUEUE_KEY}.enable`) ?? 'Trigger queue'}</span>
+			</label>
+
+			{#if queue.enabled}
+				<div class='field-row'>
+					<label class='field'>
+						<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrack`) ?? 'Idle track'}</span>
+						<select
+							value={idleTrack ? queue.idleTrackId : ''}
+							disabled={idleTrackOptions.length === 0}
+							onchange={onQueueIdleTrack}
+						>
+							<option value='' disabled>{game.i18n?.localize(`${QUEUE_KEY}.idleTrackPlaceholder`) ?? 'Select a track…'}</option>
+							{#each idleTrackOptions as track (track.id)}
+								<option value={track.id}>{track.name}</option>
+							{/each}
+						</select>
+					</label>
+					<label class='field'>
+						<span class='label'>{game.i18n?.localize(`${QUEUE_KEY}.queuedIdleMs`) ?? 'Queued idle (ms)'}</span>
+						<input
+							type='number'
+							min='0'
+							step='1'
+							value={queue.queueIdleMs}
+							onchange={onQueuedIdleMs}
+						/>
+					</label>
+				</div>
+
+				{#if status === 'no-idle-track'}
+					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.idleTrackNone`) ?? 'This layer has no track that transitions on end — the queue stays inactive.'}</p>
+				{:else if status === 'invalid-idle-track'}
+					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.invalidTrack`) ?? 'The selected idle track no longer exists — the queue stays inactive.'}</p>
+				{:else if status === 'chain-does-not-return'}
+					<p class='hint warn'>{game.i18n?.localize(`${QUEUE_KEY}.chainNotReturning`) ?? 'The idle track never hands back to the initial track — the queue stays inactive.'}</p>
+				{:else}
+					<p class='hint'>{game.i18n?.format(`${QUEUE_KEY}.hint`, { ms: idleTrack?.durationMs ?? 0 }) ?? ''}</p>
+				{/if}
+			{/if}
+		</section>
+	{/if}
+
 	{#if layer.type === 'wysiwyg'}
 		<section class='field-row'>
 			<label class='field'>
@@ -142,6 +259,43 @@
 		overflow-y auto
 		min-height 0
 		flex 1 1 auto
+
+	.queue-section
+		display flex
+		flex-direction column
+		gap 10px
+
+		> .label
+			font-size 11px
+			text-transform uppercase
+			letter-spacing 0.4px
+			opacity 0.7
+			font-weight 500
+
+	.field.checkbox
+		flex-direction row
+		align-items center
+		gap 8px
+		font-size 12px
+
+		input
+			width auto
+			height auto
+
+	.hint
+		margin 0
+		padding 8px
+		font-size 11px
+		opacity 0.6
+		font-style italic
+		background rgba(255, 255, 255, 0.02)
+		border 1px dashed rgba(255, 255, 255, 0.1)
+		border-radius 3px
+
+		&.warn
+			opacity 0.9
+			color #ffb347
+			border-color rgba(255, 179, 71, 0.4)
 
 	.field-row
 		display grid

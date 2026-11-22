@@ -1,10 +1,13 @@
 <svelte:options runes={true} />
 <script lang='ts'>
+	import { isBroadcastOperator } from '../../../utils/helpers.ts';
 	import { generateDataBlockFromSetting, settings } from '../../../utils/settings.ts';
 	import { sendOpenSettingsConfig } from '../../../utils/socket.ts';
 	import LevelsSection from './LevelsSection.svelte';
 
 	const { disabled = false } = $props<{ disabled?: boolean }>();
+
+	const operator = isBroadcastOperator();
 
 	const { ic, ooc, players } = generateDataBlockFromSetting();
 	const currentIC = settings.getStore('defaultInCombat');
@@ -164,18 +167,22 @@
 					title={game.i18n?.localize('obs-utils.strings.pauseCameraTracking')}
 					for='pauseCameraTracking'><i class='fas fa-pause'></i></label
 				>
-				<input name='forceOpenSettingsForOBSUser' id='forceOpenSettingsForOBSUser' type='button' onclick={() => sendOpenSettingsConfig()} {disabled} />
+				<!-- Pure socket broadcast to the OBS client — the one Controls action
+					that works without an active GM, so it stays out of the gate. -->
+				<input name='forceOpenSettingsForOBSUser' id='forceOpenSettingsForOBSUser' type='button' onclick={() => sendOpenSettingsConfig()} />
 				<label
 					class='button'
-					class:disabled
-					title={game.i18n?.localize('obs-utils.applications.director.forceOpenSettingsForOBSUser')}
+					title={`${game.i18n?.localize('obs-utils.applications.director.forceOpenSettingsForOBSUser')} — ${game.i18n?.localize('obs-utils.applications.director.worksWithoutGM')}`}
 					for='forceOpenSettingsForOBSUser'><i class='fas fa-cog'></i></label
 				>
 			</div>
 		</div>
 		<!-- Renders nothing unless the active scene actually has floors, so v13
-			and single-level v14 scenes are unaffected. -->
-		<LevelsSection {disabled} />
+			and single-level v14 scenes are unaffected. Floor control is out of the
+			operator's scope for now — it drags scene availability and levelPins in. -->
+		{#if !operator}
+			<LevelsSection {disabled} />
+		{/if}
 	</div>
 </div>
 

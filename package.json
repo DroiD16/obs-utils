@@ -39,6 +39,7 @@
 	"dependencies": {
 		"@jhubbardsf/svelte-sortablejs": "^1.1.0",
 		"flat": "^6.0.1",
+		"gsap": "^3.15.0",
 		"obs-websocket-js": "^5.0.8",
 		"svelte": "^5.55.7",
 		"svelte-tiny-virtual-list": "^3.0.1"
@@ -59,7 +60,6 @@
 		"eslint-plugin-svelte": "^3.17.1",
 		"fvtt-types": "13.346.0-beta.20251209192131",
 		"globals": "^17.6.0",
-		"gsap": "^3.15.0",
 		"istanbul-lib-coverage": "^3.2.2",
 		"jsdom": "^29.1.1",
 		"monocart-reporter": "^2.11.2",

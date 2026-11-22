@@ -48,7 +48,7 @@ test('seed the world from fixtures/world.json', async ({ page }) => {
 	const fixture = JSON.parse(fs.readFileSync('tests/fixtures/world.json', 'utf8')) as Fixture;
 
 	await page.goto('/join');
-	await page.locator('select[name="userid"]').selectOption({ label: 'Gamemaster' });
+	await page.locator('select[name="userid" i]').selectOption({ label: 'Gamemaster' });
 	await page.locator('input[name=password]').fill(process.env.TEST_INSTALL_PASSWORD ?? '');
 	await page.getByRole('button', { name: 'Join Game Session' }).click();
 	await expect(page).toHaveURL('/game');

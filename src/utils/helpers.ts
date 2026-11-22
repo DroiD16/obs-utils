@@ -40,6 +40,18 @@ export function getAllGMs(): User[] {
 }
 
 /**
+ * True when the current user is the designated broadcast operator: a regular
+ * (non-GM) player picked in the `broadcastOperatorUserId` world setting. The
+ * operator drives the stream through the GM relay — see settings.ts.
+ */
+export function isBroadcastOperator(): boolean {
+	const operatorId = (game as ReadyGame | undefined)?.settings?.get(MODULE_ID, 'broadcastOperatorUserId');
+	if (!operatorId || operatorId === 'none') return false;
+	const user = (game as ReadyGame | undefined)?.user;
+	return user?.id === operatorId && !user?.isGM;
+}
+
+/**
  * Resolve the GM whose viewport should drive `cloneDM`-mode camera tracking.
  * Honors the `activeGMUserId` setting when that user is online; otherwise
  * falls back to the first active GM (legacy behavior).

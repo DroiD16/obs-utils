@@ -17,6 +17,7 @@
 			"avInputPlaceholder": "Enter text or search",
 			"customGroup": "Custom",
 			"triggerGroup": "Trigger",
+			"broadcastOperatorNone": "Not assigned",
 			"iconPlaceholder": "Icon",
 			"true": "True",
 			"false": "False",
@@ -78,6 +79,8 @@
 				"levelBlockedShort": "Can't show {level}",
 				"forceOpenSettingsForOBSUser": "Force Open Settings Menu for OBS User",
 				"noGMWarning": "No GM is currently logged in, director settings cannot be changed",
+				"worksWithoutGM": "Works even without an active GM",
+				"presetStopAll": "Stop active preset",
 				"cameraSmoothingHeader": "Camera Smoothing",
 				"easing": "Easing",
 				"duration": "Duration",
@@ -299,6 +302,17 @@
 				"tileByPlayers": "Players",
 				"tileByUsers": "Users (incl. GM)",
 				"tileByOnce": "Once (singleton)",
+				"queue": {
+					"title": "Trigger queue",
+					"enable": "Queue triggers while a tile is showing",
+					"idleTrack": "Idle track",
+					"idleTrackPlaceholder": "Select a track…",
+					"idleTrackNone": "This layer has no track that transitions on end, so the queue stays inactive.",
+					"queuedIdleMs": "Queued idle (ms)",
+					"hint": "Normal idle hold is the idle track’s duration ({ms} ms); while triggers are queued it is shortened to this value.",
+					"invalidTrack": "The selected idle track is gone or no longer transitions on end, so the queue stays inactive.",
+					"chainNotReturning": "The idle track never hands back to the initial track, so the queue stays inactive."
+				},
 				"canvasWidth": "Canvas width (px)",
 				"canvasHeight": "Canvas height (px)",
 				"customCSS": "Custom CSS for this overlay",
@@ -512,6 +526,9 @@
 			"progressBar": {
 				"name": "Progress Bar"
 			},
+			"tierImageAV": {
+				"name": "Image by Fill"
+			},
 			"simpleOverlay": {
 				"name": "Inline"
 			},
@@ -525,9 +542,13 @@
 					"name": "Player Roll",
 					"fields": {
 						"actor": "Rolling Actor",
+						"speakerName": "Speaker Name (Actor, Else Chat Alias)",
 						"roll": "Roll Object",
 						"total": "Roll Total",
 						"formula": "Roll Formula",
+						"shortFormula": "Roll Formula (Compact)",
+						"flavor": "Roll Flavor",
+						"label": "Roll Label (Short Flavor)",
 						"isCritical": "Is Critical (Nat 20)",
 						"isFumble": "Is Fumble (Nat 1)"
 					}
@@ -553,6 +574,10 @@
 			"obsModeUser": {
 				"Name": "Designate User as OBS Client",
 				"Hint": "Treat the selected user's browser as OBS — UI hidden, overlays rendered."
+			},
+			"broadcastOperatorUserId": {
+				"Name": "Broadcast Operator",
+				"Hint": "Lets the selected player drive the stream through the Director window (camera modes, tracked player, presets). Their commands are carried out by the active GM's client; without an active GM only opening the OBS settings and stopping a preset keep working. Assigning or removing the role takes effect after clients reload."
 			},
 			"obsModeGlobalDisable": {
 				"Name": "Disable OBS Mode for Everyone",

@@ -51,7 +51,7 @@
 		commit?.();
 	}
 
-	const IMAGE_COMPONENT_TYPES = new Set(['img', 'bavimg', 'mimgav']);
+	const IMAGE_COMPONENT_TYPES = new Set(['img', 'bavimg', 'mimgav', 'tierimg']);
 	const showImage = $derived(
 		targetKind === 'component' && target && IMAGE_COMPONENT_TYPES.has((target as any).type),
 	);

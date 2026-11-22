@@ -7,7 +7,7 @@ async function setupGMPage(gmPage: Page) {
 	await gmPage.goto('/join');
 
 	await gmPage
-		.locator('select[name="userid"]')
+		.locator('select[name="userid" i]')
 		.selectOption({ label: 'Gamemaster' });
 	await gmPage
 		.locator('input[name=password]')
@@ -29,7 +29,7 @@ async function setupOBSPage(obsPage: Page) {
 	await obsPage.goto('/join');
 
 	await obsPage
-		.locator('select[name="userid"]')
+		.locator('select[name="userid" i]')
 		.selectOption({ label: 'Player2' });
 	await obsPage
 		.locator('input[name=password]')
@@ -49,7 +49,7 @@ async function setupOBSPage(obsPage: Page) {
 async function setupPlayerPage(playerPage: Page) {
 	await playerPage.goto('/join');
 	await playerPage
-		.locator('select[name="userid"]')
+		.locator('select[name="userid" i]')
 		.selectOption({ label: 'Player3' });
 	await playerPage
 		.locator('input[name=password]')

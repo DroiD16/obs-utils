@@ -1195,3 +1195,141 @@ test.describe('OBS Remote menu', () => {
 		await expect(app.locator('.instance')).toHaveCount(0);
 	});
 });
+
+test.describe('Trigger queue', () => {
+	const ROW = '[data-overlay-row-id="test-roll-queue"]';
+
+	async function hasQueueOverlay(gmPage: Page): Promise<boolean> {
+		return await gmPage.evaluate(() => {
+			// @ts-expect-error run in plain js
+			const overlays: OverlayData[] = game.settings.get('obs-utils', 'streamOverlays');
+			return overlays.some(o => o.id === 'test-roll-queue');
+		});
+	}
+
+	async function fireRoll(obsPage: Page, payload: Record<string, unknown>) {
+		await obsPage.evaluate((p) => {
+			// @ts-expect-error run in plain js
+			game.modules.get('obs-utils').api.fireOverlayTrigger('core.onPlayerRoll', p);
+		}, payload);
+	}
+
+	function roll(name: string, total: number, flavor: string) {
+		return { actor: { name }, total, formula: '1d20', flavor, isCritical: false, isFumble: false };
+	}
+
+	test.beforeEach(async ({ pages: { gmPage, obsPage } }) => {
+		test.skip(!(await hasQueueOverlay(gmPage)), 'no test-roll-queue overlay in fixture');
+		await obsPage.goto('/stream');
+		// @ts-expect-error run in plain js
+		await obsPage.waitForFunction(() => window.game?.modules?.get?.('obs-utils')?.api);
+		// The reload above drops any queue a previous test left behind.
+		await obsPage.waitForSelector(`${ROW} .overlay-tile`);
+	});
+
+	test('a second roll waits for the first plate to hide instead of replacing it', async ({ pages: { obsPage } }) => {
+		const tile = obsPage.locator(`${ROW} .overlay-tile`);
+		await expect(tile).toHaveCount(1);
+
+		// The whole show/idle/hide cycle takes ~700ms, far too short for a chain
+		// of round-tripped Playwright assertions. Sample the plate in-page and
+		// assert over the recorded timeline instead. Text alone would not do:
+		// once the plate is hidden the tile falls back to the newest payload, so
+		// every claim is anchored to the plate's computed opacity.
+		const samples = await obsPage.evaluate(async () => {
+			const row = '[data-overlay-row-id="test-roll-queue"]';
+			// @ts-expect-error run in plain js
+			const api = game.modules.get('obs-utils').api;
+			const mkRoll = (name: string, total: number, flavor: string) =>
+				({ actor: { name }, total, formula: '1d20', flavor, isCritical: false, isFumble: false });
+
+			const started = performance.now();
+			api.fireOverlayTrigger('core.onPlayerRoll', mkRoll('Hero', 41, 'First Strike'));
+			api.fireOverlayTrigger('core.onPlayerRoll', mkRoll('Ranger', 42, 'Second Wind'));
+
+			const out: Array<{ t: number; opacity: number; first: boolean; second: boolean }> = [];
+			return await new Promise<typeof out>((resolve) => {
+				const step = () => {
+					const t = performance.now() - started;
+					const plate = document.querySelector(`${row} [data-component-id="rq-total"]`);
+					const tileEl = document.querySelector(`${row} .overlay-tile`);
+					if (plate && tileEl) {
+						const text = tileEl.textContent ?? '';
+						out.push({
+							t,
+							opacity: Number.parseFloat(getComputedStyle(plate).opacity),
+							first: text.includes('41'),
+							second: text.includes('42'),
+						});
+					}
+					if (t > 4000) resolve(out);
+					else requestAnimationFrame(step);
+				};
+				step();
+			});
+		});
+
+		// The first roll reaches full opacity showing its own total.
+		const shownFirst = samples.findIndex(s => s.opacity > 0.9 && s.first);
+		expect(shownFirst).toBeGreaterThanOrEqual(0);
+
+		// It then hides — the queued roll never cut into the visible plate.
+		const hidden = samples.findIndex((s, i) => i > shownFirst && s.opacity < 0.1);
+		expect(hidden).toBeGreaterThan(shownFirst);
+		expect(samples.slice(0, hidden).some(s => s.opacity > 0.5 && s.second)).toBe(false);
+
+		// And the tile shows again for the queued roll — B was held, not dropped.
+		const shownSecond = samples.findIndex((s, i) => i > hidden && s.opacity > 0.9 && s.second);
+		expect(shownSecond).toBeGreaterThan(hidden);
+
+		// Still exactly one plate — the queue never shows two at once.
+		await expect(tile).toHaveCount(1);
+	});
+
+	test('a queued roll shortens the idle hold', async ({ pages: { obsPage } }) => {
+		// Text alone is not enough: at the end of A's hide the tile falls back to
+		// the newest global payload, so '42' appears while the plate is invisible.
+		// Anchor on the plate's own opacity, as in the test above.
+		const elapsed = await obsPage.evaluate(async () => {
+			const row = '[data-overlay-row-id="test-roll-queue"]';
+			const first = { actor: { name: 'Hero' }, total: 41, formula: '1d20', flavor: 'First' };
+			const second = { actor: { name: 'Ranger' }, total: 42, formula: '1d20', flavor: 'Second' };
+			// @ts-expect-error run in plain js
+			const api = game.modules.get('obs-utils').api;
+
+			const started = performance.now();
+			api.fireOverlayTrigger('core.onPlayerRoll', first);
+			api.fireOverlayTrigger('core.onPlayerRoll', second);
+			return await new Promise<number>((resolve) => {
+				const check = () => {
+					const plate = document.querySelector(`${row} [data-component-id="rq-total"]`);
+					const text = document.querySelector(`${row} .overlay-tile`)?.textContent ?? '';
+					const opacity = plate ? Number.parseFloat(getComputedStyle(plate).opacity) : 0;
+					if (opacity > 0.9 && text.includes('42')) resolve(performance.now() - started);
+					else if (performance.now() - started > 5000) resolve(-1);
+					else requestAnimationFrame(check);
+				};
+				check();
+			});
+		});
+
+		// Fixture timings: show 200 (opacity ramps 0 → 1), idle 1000 shortened to
+		// queueIdleMs 300, hide 200. B therefore reaches full opacity at about
+		// 200 + 300 + 200 + 180 ≈ 880ms; with the hold not shortened it would be
+		// 200 + 1000 + 200 + 180 ≈ 1580ms, and a B that simply replaced A on the
+		// plate would land at ≈ 180ms. 600..1250 keeps ~350ms of slack each way.
+		expect(elapsed).toBeGreaterThan(600);
+		expect(elapsed).toBeLessThan(1250);
+	});
+
+	test('the roll flavor is rendered on the plate', async ({ pages: { obsPage } }) => {
+		await fireRoll(obsPage, roll('Hero', 43, 'Power Attack'));
+		await expect(obsPage.locator(`${ROW} [data-component-id="rq-flavor"]`)).toContainText('Power Attack');
+	});
+
+	test('no queue-length indicator is rendered', async ({ pages: { obsPage } }) => {
+		await fireRoll(obsPage, roll('Hero', 44, 'One'));
+		await fireRoll(obsPage, roll('Ranger', 45, 'Two'));
+		await expect(obsPage.locator('[data-queue-length]')).toHaveCount(0);
+	});
+});

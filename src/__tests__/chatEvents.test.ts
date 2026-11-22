@@ -38,15 +38,20 @@ it.each(['game', 'stream'])('emits roll and chat events with the author on /%s w
 		isRoll: true,
 		rolls: [roll],
 		content: 'Roll result',
+		flavor: 'Wisdom (Perception) Check',
 	};
 	const handler = callbacks.get('createChatMessage')!;
 	handler(message);
 	expect(fireOverlayTrigger).toHaveBeenNthCalledWith(1, 'core.onPlayerRoll', {
 		actor,
+		speakerName: actor.name,
 		user: author,
 		roll,
 		total: 17,
 		formula: roll.formula,
+		shortFormula: '1d20+2',
+		flavor: message.flavor,
+		label: 'Perception',
 		isCritical: false,
 		isFumble: false,
 	});

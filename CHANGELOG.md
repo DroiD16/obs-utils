@@ -1,3 +1,11 @@
+## Version 5.3.2-roll-queue.1
+
+Based on OBS Utils 5.3.2. The fork still includes trigger queues, Broadcast Operator, short roll labels, Image by Fill, and the existing translations.
+
+- Roll and event overlays use the correct player or actor data on `/stream`. Trigger queues keep each roll's data until its animation finishes.
+- Data pickers open when groups share a label. Text and image editors recognize actor fields such as `name` and `img`.
+- Keeps the previous release's fixes for imported animation bindings, playback restart, trigger hook cleanup, and partial camera updates.
+
 ## Version 5.3.2
 
 ### Fixed
@@ -7,6 +15,83 @@
 - Event overlays retain each player’s or actor’s event data when another event arrives.
 - Data pickers open correctly when groups share a display label.
 - Text and image editors recognize root actor fields such as `name` and `img` as data sources.
+
+## Version 5.3.1-roll-queue.1
+
+Fork release based on upstream OBS Utils 5.3.1. Keeps trigger queues, Broadcast Operator, roll labels, Image by Fill, and the existing translations.
+
+### Fixed
+
+- Imported overlays keep their animation bindings after component IDs change.
+- Overlay events resume after playback is stopped and restarted.
+- Removing an event also removes its Foundry hook subscriptions.
+- Camera updates that change only position or zoom keep the other viewport values.
+- Editors recognize actor name and portrait fields as dynamic data.
+
+## Version 5.3.0-roll-queue.5
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- "Image by Fill" overlay component (`tierimg`). It shows one image picked by how full a value is, for example a health gem that turns from green to yellow to red to black. Data format: `valuePath[+valuePath...];maxPath;>50:green.png;>=25:yellow.png;>0:red.png;black.png`. The `+`-joined paths are summed, so current and temporary hit points count together. The first rule the percentage meets wins, and the segment without a condition is the fallback. A missing or zero max shows no image.
+
+## Version 5.3.0-roll-queue.4
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- `speakerName` field on `core.onPlayerRoll`: the rolling actor's name, else the chat speaker alias, else the author's name. A GM rolling without a token still gets a name on the banner.
+
+### Changed
+
+- `label` shortens more dnd5e flavors. Item rolls keep the item name ("Scimitar - Attack Roll" → "Scimitar", "Bite - Damage Roll" → "Bite"), tool checks drop "Check", and actor-prefixed checks such as "Fraen Torn - Charisma (Persuasion) Check" become "Persuasion". A roll without a flavor is labelled "Roll".
+
+## Version 5.3.0-roll-queue.3
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- `label` and `shortFormula` fields on `core.onPlayerRoll`, for banners with little room. `label` shortens dnd5e check and save flavors ("Wisdom (Perception) Check (Advantage)" → "Perception", "Constitution Saving Throw" → "Constitution Save") and passes any other flavor through. `shortFormula` folds flat modifiers into one number ("1d20 + 2 + 1" → "1d20+3").
+
+### Fixed
+
+- Animated overlays start on their initial track as soon as they mount. Previously that frame never reached the renderer, so a hidden roll banner showed at full opacity, with empty text, from page load until the first trigger.
+
+## Version 5.3.0-roll-queue.2
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- Broadcast Operator role. The GM designates one regular player in the new "Broadcast Operator" world setting (applies after clients reload); that player gets the Stream Director with the Controls and Presets tabs. Their changes — camera modes, tracked player, pause, canvas clamp, tracking mode, easing and duration, playing camera presets — are carried out by the active GM's client and written as ordinary world settings. Force-opening the OBS client's settings and stopping a running preset keep working even with no active GM.
+
+### Changed
+
+- The Director's no-GM warning now reacts while the window is open: controls disable the moment the last GM disconnects and re-enable on reconnect. Previously the state was frozen at open time.
+- Preset authoring buttons (add, rename, update, edit, delete) and Play are disabled while no GM is active; stopping a preset stays available. As a consequence, a non-GM Director in OBS mode can no longer start a preset while no GM is online.
+- When the broadcast operator plays a preset, the GM who currently owns the broadcast camera executes it, so a Co-DM camera handover is preserved.
+
+### Fixed
+
+- The stop-preset button tooltip showed a raw localization key instead of "Stop active preset".
+
+## Version 5.3.0-roll-queue.1
+
+Fork release based on upstream OBS Utils 5.3.0.
+
+### Added
+
+- Per-tile trigger queue for animated overlays. While a tile is showing, further triggers are held and replayed one at a time once it has hidden, so rolls are never lost or overwritten mid-animation. With something queued, the idle hold shortens to the configured queued-idle time.
+- Composer layer settings for the trigger queue: enable it, pick the idle track it shortens, and set the queued idle hold.
+- `flavor` field on `core.onPlayerRoll`, carrying the chat message flavour text.
+
+### Fixed
+
+- Animated overlay tiles keep the payload of the trigger that opened them, so a later roll no longer swaps the text mid-animation. A trigger that names an actor or a user only transitions that actor's or user's tile; a payload naming neither still reaches every tile, as before.
+- Bundle GSAP for camera keyframe playback: Foundry V14 does not expose `globalThis.gsap` during module load.
 
 ## Version 5.3.0
 

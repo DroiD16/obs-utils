@@ -149,3 +149,5 @@ vite.config.js.timestamp-*
 .idea/**/runConfigurations
 *.iml
 *.iws
+
+.local/

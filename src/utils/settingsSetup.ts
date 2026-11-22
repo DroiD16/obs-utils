@@ -355,6 +355,17 @@ export function	initSettings() {
 		config: true,
 		requiresReload: true,
 	});
+	// A regular player who may drive the stream through the GM relay. Same
+	// lifecycle as obsModeUser: choices are filled on 'ready', role changes
+	// apply after clients reload.
+	createSetting('broadcastOperatorUserId', {
+		default: 'none',
+		type: String,
+		scope: 'world',
+		choices: {},
+		config: true,
+		requiresReload: true,
+	});
 	createSetting('obsModeGlobalDisable', {
 		default: false,
 		type: Boolean,

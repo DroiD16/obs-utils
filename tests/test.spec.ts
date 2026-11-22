@@ -416,7 +416,7 @@ test.describe('Multi-GM Handover', () => {
 		const gm2Page = await gm2Context.newPage();
 		try {
 			await gm2Page.goto('/join');
-			await gm2Page.locator('select[name="userid"]').selectOption({ label: 'GM2' });
+			await gm2Page.locator('select[name="userid" i]').selectOption({ label: 'GM2' });
 			await gm2Page.locator('input[name=password]').fill(
 				process.env.TEST_INSTALL_PASSWORD ? process.env.TEST_INSTALL_PASSWORD : '',
 			);

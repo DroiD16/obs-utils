@@ -1209,6 +1209,276 @@
 						}
 					]
 				}
+			},
+			{
+				"id": "test-roll-queue",
+				"name": "Roll Queue",
+				"type": "sl",
+				"tileBy": "once",
+				"enabled": true,
+				"style": "",
+				"config": {},
+				"queue": {
+					"enabled": true,
+					"idleTrackId": "rq-idle",
+					"queueIdleMs": 300
+				},
+				"components": [
+					{
+						"id": "rq-name",
+						"type": "pt",
+						"data": "trigger.actor.name",
+						"style": ""
+					},
+					{
+						"id": "rq-total",
+						"type": "pt",
+						"data": "trigger.total",
+						"style": ""
+					},
+					{
+						"id": "rq-flavor",
+						"type": "pt",
+						"data": "trigger.flavor",
+						"style": ""
+					}
+				],
+				"animation": {
+					"initialTrackId": "rq-hidden",
+					"tracks": [
+						{
+							"id": "rq-hidden",
+							"name": "Hidden",
+							"durationMs": 0,
+							"behavior": {
+								"type": "static"
+							},
+							"lanes": [
+								{
+									"componentId": "rq-name",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 0
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-total",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 0
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-flavor",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 0
+											}
+										]
+									}
+								}
+							]
+						},
+						{
+							"id": "rq-show",
+							"name": "Show",
+							"durationMs": 200,
+							"behavior": {
+								"type": "transition-on-end",
+								"toTrackId": "rq-idle",
+								"toTime": 0
+							},
+							"lanes": [
+								{
+									"componentId": "rq-name",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 0
+											},
+											{
+												"t": 200,
+												"v": 1
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-total",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 0
+											},
+											{
+												"t": 200,
+												"v": 1
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-flavor",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 0
+											},
+											{
+												"t": 200,
+												"v": 1
+											}
+										]
+									}
+								}
+							]
+						},
+						{
+							"id": "rq-idle",
+							"name": "Idle",
+							"durationMs": 1000,
+							"behavior": {
+								"type": "transition-on-end",
+								"toTrackId": "rq-hide",
+								"toTime": 0
+							},
+							"lanes": [
+								{
+									"componentId": "rq-name",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 1
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-total",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 1
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-flavor",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 1
+											}
+										]
+									}
+								}
+							]
+						},
+						{
+							"id": "rq-hide",
+							"name": "Hide",
+							"durationMs": 200,
+							"behavior": {
+								"type": "transition-on-end",
+								"toTrackId": "rq-hidden",
+								"toTime": 0
+							},
+							"lanes": [
+								{
+									"componentId": "rq-name",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 1
+											},
+											{
+												"t": 200,
+												"v": 0
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-total",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 1
+											},
+											{
+												"t": 200,
+												"v": 0
+											}
+										]
+									}
+								},
+								{
+									"componentId": "rq-flavor",
+									"keyframes": [],
+									"propertyKeyframes": {
+										"opacity": [
+											{
+												"t": 0,
+												"v": 1
+											},
+											{
+												"t": 200,
+												"v": 0
+											}
+										]
+									}
+								}
+							]
+						}
+					],
+					"transitions": [
+						{
+							"triggerKey": "core.onPlayerRoll",
+							"fromTrackId": "rq-hidden",
+							"zones": [
+								{
+									"startT": 0,
+									"endT": 1,
+									"destination": {
+										"type": "goto",
+										"toTrackId": "rq-show",
+										"toTime": 0
+									}
+								}
+							]
+						}
+					]
+				}
 			}
 		],
 		"overlayActorsModified": true,

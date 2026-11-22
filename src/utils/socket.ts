@@ -5,7 +5,7 @@ import type { OBSWebsocketSettings } from './types.ts';
 import { playSequence } from './cameraSequencePlayer.ts';
 import { clampAndApplyExternal, getCurrentUser, getLocalViewport, VIEWPORT_DATA, viewportChanged } from './canvas';
 import { PACKAGE_ID } from './const.ts';
-import { isOBS } from './helpers.ts';
+import { getActiveGM, isBroadcastOperator, isOBS } from './helpers.ts';
 import { getSetting, setSetting } from './settings.ts';
 
 type NotifyOptions = foundry.applications.ui.Notifications.NotifyOptions;
@@ -35,6 +35,8 @@ async function handleEvent({ eventType, targetUser, payload }: {
 		await handleGMHandoverGrant(payload);
 	} else if (eventType === 'playPreset') {
 		handlePlayPreset(payload);
+	} else if (eventType === 'requestPresetPlay') {
+		await handleRequestPresetPlay(payload);
 	} else if (eventType === 'stopPreset') {
 		handleStopPreset();
 	} else if (eventType === 'requestViewport') {
@@ -230,15 +232,19 @@ function dragReleaseEmit(p: Canvas.ViewPosition) {
 	}, DRAG_SETTLE_MS);
 }
 
+/** Complete partial pan updates from the current viewport before broadcasting them. */
 export function socketCanvas(_canvas: Canvas, position: Canvas.ViewPosition) {
+	const local = getLocalViewport();
+	const x = position.x ?? local?.x;
+	const y = position.y ?? local?.y;
+	const scale = position.scale ?? local?.scale;
+	if (typeof x !== 'number' || typeof y !== 'number' || typeof scale !== 'number') return;
+	if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(scale)) return;
+	const viewport = { x, y, scale };
 	const mode = (getSetting('cameraTrackingMode') as 'raw' | 'smooth' | 'dragRelease') ?? 'smooth';
-	if (mode === 'dragRelease') {
-		dragReleaseEmit(position);
-	} else if (mode === 'raw') {
-		throttledEmit(position);
-	} else {
-		smoothedEmit(position);
-	}
+	if (mode === 'dragRelease') dragReleaseEmit(viewport);
+	else if (mode === 'raw') throttledEmit(viewport);
+	else smoothedEmit(viewport);
 }
 
 /**
@@ -342,6 +348,37 @@ function handleStopPreset() {
 		activePresetController.stop();
 		activePresetController = null;
 	}
+}
+
+// ─── Operator preset relay ────────────────────────────────────────────────
+// The broadcast operator can't run orchestratePresetPlay — it writes world
+// settings under the clicking user. Instead the operator asks the GMs; the
+// GM who currently owns the broadcast camera (getActiveGM) runs the ordinary
+// orchestration under their own identity.
+
+/**
+ * Operator-side sender. Re-checks the role right before emitting — not as
+ * forgery protection, but so a Director window opened before the role was
+ * revoked stops sending requests after the revocation lands.
+ */
+export function sendRequestPresetPlay(preset: CameraPreset) {
+	if (!isBroadcastOperator()) return;
+	(game as ReadyGame | undefined)?.socket?.emit('module.obs-utils', {
+		eventType: 'requestPresetPlay',
+		targetUser: undefined,
+		payload: { preset } satisfies PlayPresetPayload,
+	});
+}
+
+async function handleRequestPresetPlay(payload: PlayPresetPayload) {
+	if (!(game as ReadyGame).user?.isGM) return;
+	// Exactly one GM orchestrates — with two GMs online the preset would
+	// otherwise be broadcast to OBS twice. Prefer the GM who already owns the
+	// broadcast camera (getActiveGM honors a Co-DM handover via activeGMUserId),
+	// so the operator's Play doesn't silently move the claim to another GM.
+	const executor = getActiveGM() ?? (game as ReadyGame).users?.find((u: User) => u.isGM);
+	if (executor && (game as ReadyGame).user?.id !== executor.id) return;
+	await orchestratePresetPlay(payload.preset);
 }
 
 /**

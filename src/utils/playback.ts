@@ -1,9 +1,17 @@
-import type { OverlayTrack, ZoneDestination } from './overlayAnimation.ts';
+import type { OverlayTrack, TrackTransition, TransitionZone, ZoneDestination } from './overlayAnimation.ts';
 import type { ComponentFrame, OverlayFrame } from './render.ts';
 import type { TriggerRegistry } from './triggers.ts';
 import type { OverlayData } from './types.ts';
 import { getEventUserId } from './eventUser.ts';
 import { computeTrackFrame, findActiveZone } from './overlayAnimation.ts';
+import { getEventActorId, payloadHasIdentity } from './render.ts';
+
+interface QueuedTrigger {
+	triggerKey: string;
+	payload: Record<string, unknown>;
+	/** The `goto` this trigger would have taken out of the initial track. */
+	destination: ZoneDestination;
+}
 
 interface TileState {
 	overlay: OverlayData;
@@ -11,7 +19,12 @@ interface TileState {
 	currentTrackId: string;
 	startWall: number;
 	lastTriggerKey?: string;
+	/** Payload of the trigger that started the current show. */
 	lastTriggerPayload?: Record<string, unknown>;
+	/** Triggers deferred while the tile was busy, replayed FIFO. */
+	queue: QueuedTrigger[];
+	/** Set while `onTrackEntered` is draining the queue, to keep it iterative. */
+	releasing?: boolean;
 }
 
 function stateKey(overlayId: string, tileKey: string): string {
@@ -23,6 +36,7 @@ export class PlaybackEngine {
 	private readonly frames: Map<string, OverlayFrame>;
 	private readonly registry: TriggerRegistry;
 	private readonly onFramesChanged: () => void;
+	private readonly previewMode: () => boolean;
 	private readonly perTriggerUnsubs: Array<() => void> = [];
 
 	private rafId: number | null = null;
@@ -32,25 +46,43 @@ export class PlaybackEngine {
 		registry: TriggerRegistry,
 		frames: Map<string, OverlayFrame>,
 		onFramesChanged: () => void,
+		previewMode: () => boolean = () => false,
 	) {
 		this.registry = registry;
 		this.frames = frames;
 		this.onFramesChanged = onFramesChanged;
+		this.previewMode = previewMode;
 	}
 
 	mountTile(overlay: OverlayData, tileKey: string): void {
 		if (!overlay.animation) return;
 		const key = stateKey(overlay.id ?? '', tileKey);
-		if (this.states.has(key)) return;
+		const existing = this.states.get(key);
+		// The settings store rebuilds every `OverlayData` on any settings write,
+		// so object identity would restart each tile (and drop its queue) on an
+		// unrelated slider edit. Only a change to the parts the engine actually
+		// plays back — animation, queue, tiling — restarts the tile.
+		if (existing) {
+			if (playbackSignature(existing.overlay) === playbackSignature(overlay)) {
+				existing.overlay = overlay;
+				return;
+			}
+			this.states.delete(key);
+		}
 		const state: TileState = {
 			overlay,
 			tileKey,
 			currentTrackId: overlay.animation.initialTrackId,
 			startWall: performance.now(),
+			queue: [],
 		};
 		this.states.set(key, state);
 		this.subscribeTransitions(overlay);
 		this.computeFrame(state);
+		// `tick` only notifies when a frame differs from the stored one, and this
+		// initial frame is already stored, so a static initial track would never
+		// reach the renderer: the tile would sit at full opacity until a trigger.
+		this.onFramesChanged();
 	}
 
 	unmountTile(overlayId: string, tileKey: string): void {
@@ -61,6 +93,7 @@ export class PlaybackEngine {
 
 	start(): void {
 		if (this.running) return;
+		for (const state of this.states.values()) this.subscribeTransitions(state.overlay);
 		this.running = true;
 		this.scheduleTick();
 	}
@@ -73,6 +106,7 @@ export class PlaybackEngine {
 		}
 		for (const unsub of this.perTriggerUnsubs) unsub();
 		this.perTriggerUnsubs.length = 0;
+		this.subscribedTriggers.clear();
 	}
 
 	private readonly subscribedTriggers = new Set<string>();
@@ -90,54 +124,144 @@ export class PlaybackEngine {
 		}
 	}
 
-	private handleTriggerFire(key: string, payload: unknown): void {
+	private handleTriggerFire(key: string, event: unknown): void {
+		const payload = event && typeof event === 'object' ? event as Record<string, unknown> : {};
 		const now = performance.now();
 		for (const state of this.states.values()) {
-			if (!this.matchesTile(state, payload)) continue;
-			const track = this.getTrack(state);
-			// Static tracks have no advancing playhead — pin to 0 so [0, x) zones match.
-			const playheadT = track?.behavior.type === 'static'
-				? 0
-				: Math.max(0, now - state.startWall);
-			const transitions = state.overlay.animation?.transitions ?? [];
-			for (const tr of transitions) {
-				if (tr.triggerKey !== key) continue;
-				const event = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
-				if (tr.fromTrackId !== state.currentTrackId) continue;
-				let zone = findActiveZone(tr, playheadT);
-				// Static tracks: fall back to first zone when explicit matching fails.
-				if (!zone && track?.behavior.type === 'static') zone = tr.zones[0];
-				if (!zone) continue;
-				state.lastTriggerKey = key;
-				state.lastTriggerPayload = event;
-				this.applyDestination(state, zone.destination, now);
-				break;
+			// A payload naming no actor and no user addresses every tile; only an
+			// identity-bearing payload is filtered down to the tile it belongs to.
+			if (!this.matchesTile(state.tileKey, payload)) continue;
+			const handled = this.applyMatchingTransitions(state, key, payload, now);
+			// Nothing to transition from the current track and the tile is mid-show:
+			// hold the trigger and replay it once the tile is free again.
+			if (!handled && isQueueActive(state) && isSlotBusy(state)) {
+				this.enqueueTrigger(state, key, payload, now);
 			}
 		}
 		this.onFramesChanged();
 	}
 
-	private matchesTile(state: TileState, payload: unknown): boolean {
-		if (state.tileKey === 'singleton') return true;
-		if (!payload || typeof payload !== 'object') return true;
-		const event = payload as {
-			actor?: { id?: string };
-			user?: { id?: string };
-			message?: { speaker?: { actor?: string }; user?: { id?: string } };
-		};
-		const actorId = event.actor?.id ?? event.message?.speaker?.actor;
-		const userId = getEventUserId(payload as Record<string, unknown>);
-		// Events without a target (including editor test events) remain global.
-		if (state.tileKey.startsWith('actor:')) return !actorId || state.tileKey === `actor:${actorId}`;
-		if (state.tileKey.startsWith('user:')) return !userId || state.tileKey === `user:${userId}`;
+	private matchesTile(tileKey: string, payload: Record<string, unknown>): boolean {
+		if (this.previewMode() || !payloadHasIdentity(payload)) return true;
+		if (tileKey.startsWith('actor:')) return tileKey === `actor:${getEventActorId(payload)}`;
+		if (tileKey.startsWith('user:')) return tileKey === `user:${getEventUserId(payload)}`;
 		return true;
+	}
+
+	/** Applies every transition leaving the current track. Returns whether any matched. */
+	private applyMatchingTransitions(
+		state: TileState,
+		key: string,
+		payload: Record<string, unknown> | undefined,
+		now: number,
+	): boolean {
+		const track = this.getTrack(state);
+		// Static tracks have no advancing playhead — pin to 0 so [0, x) zones match.
+		const playheadT = track?.behavior.type === 'static'
+			? 0
+			: Math.max(0, now - state.startWall);
+		let handled = false;
+		const transitions = state.overlay.animation?.transitions ?? [];
+		for (const tr of transitions) {
+			if (tr.triggerKey !== key) continue;
+			if (tr.fromTrackId !== state.currentTrackId) continue;
+			const zone = this.resolveZone(tr, playheadT, track);
+			if (!zone) continue;
+			// Deliberate: an `ignore` zone counts as handled, so a trigger the
+			// author muted on this track is swallowed rather than queued.
+			handled = true;
+			state.lastTriggerKey = key;
+			if (zone.destination.type !== 'ignore') state.lastTriggerPayload = payload;
+			this.applyDestination(state, zone.destination, now);
+		}
+		return handled;
+	}
+
+	private resolveZone(tr: TrackTransition, playheadT: number, track: OverlayTrack | undefined): TransitionZone | undefined {
+		const zone = findActiveZone(tr, playheadT);
+		// Static tracks: fall back to first zone when explicit matching fails.
+		if (!zone && track?.behavior.type === 'static') return tr.zones[0];
+		return zone;
+	}
+
+	/**
+	 * Queues the transition this trigger would have taken out of the initial
+	 * track. Anything else (no such transition, or an `ignore` zone) is dropped.
+	 */
+	private enqueueTrigger(state: TileState, key: string, payload: Record<string, unknown>, now: number): void {
+		const animation = state.overlay.animation;
+		if (!animation) return;
+		const initialTrack = animation.tracks.find(t => t.id === animation.initialTrackId);
+		for (const tr of animation.transitions) {
+			if (tr.triggerKey !== key) continue;
+			if (tr.fromTrackId !== animation.initialTrackId) continue;
+			const zone = this.resolveZone(tr, 0, initialTrack);
+			if (zone?.destination.type !== 'goto') continue;
+			state.queue.push({ triggerKey: key, payload, destination: zone.destination });
+			// A queued trigger shortens the idle hold, which may already be over.
+			if (state.currentTrackId === state.overlay.queue?.idleTrackId && now - state.startWall >= idleDeadlineMs(state)) {
+				this.enterHide(state, now);
+			}
+			return;
+		}
+	}
+
+	/** Leaves the idle track early, taking its `transition-on-end` destination. */
+	private enterHide(state: TileState, now: number): void {
+		const idle = idleTrack(state);
+		if (idle?.behavior.type !== 'transition-on-end') return;
+		this.gotoTrack(state, idle.behavior.toTrackId, idle.behavior.toTime, now);
+		this.computeFrame(state);
+	}
+
+	/**
+	 * Bookkeeping for every track change: once the tile is back on the initial
+	 * track it forgets the finished trigger and releases the next queued one.
+	 *
+	 * Releasing re-enters this method through `applyDestination` → `gotoTrack`.
+	 * A queued destination that lands straight back on the initial track would
+	 * therefore recurse once per queued trigger and can blow the stack, so the
+	 * outermost call owns the drain: nested calls bail out on `releasing`, and
+	 * the loop below re-checks the track after each release. It consumes at most
+	 * one entry per iteration and is bounded by the queue length.
+	 */
+	private onTrackEntered(state: TileState, now: number): void {
+		if (state.releasing) return;
+		if (!isQueueActive(state)) return;
+		let released = false;
+		state.releasing = true;
+		try {
+			for (let budget = state.queue.length + 1; budget > 0; budget--) {
+				// The initial track is the only place a queued trigger can be
+				// released from, including the degenerate config where it doubles as
+				// the idle track — there entering it frees the slot at once.
+				if (state.currentTrackId !== state.overlay.animation?.initialTrackId) break;
+				state.lastTriggerPayload = undefined;
+				// The show is over — nothing about the finished trigger should linger.
+				state.lastTriggerKey = undefined;
+				const next = state.queue.shift();
+				if (!next) break;
+				state.lastTriggerPayload = next.payload;
+				state.lastTriggerKey = next.triggerKey;
+				released = true;
+				this.applyDestination(state, next.destination, now);
+			}
+		} finally { state.releasing = false; }
+		// The frame the last release persisted predates the bookkeeping the
+		// iteration after it did, so it is recomputed once the drain is over.
+		if (released) this.computeFrame(state);
 	}
 
 	private applyDestination(state: TileState, dest: ZoneDestination, now: number): void {
 		if (dest.type === 'ignore') return;
-		state.currentTrackId = dest.toTrackId;
-		state.startWall = now - dest.toTime;
+		this.gotoTrack(state, dest.toTrackId, dest.toTime, now);
 		this.computeFrame(state);
+	}
+
+	private gotoTrack(state: TileState, toTrackId: string, toTime: number, now: number): void {
+		state.currentTrackId = toTrackId;
+		state.startWall = now - toTime;
+		this.onTrackEntered(state, now);
 	}
 
 	private scheduleTick(): void {
@@ -161,17 +285,20 @@ export class PlaybackEngine {
 		const track = this.getTrack(state);
 		if (!track) return;
 		if (track.behavior.type === 'static') return;
-		const playheadT = now - state.startWall;
-		if (track.durationMs <= 0) return;
-		if (playheadT < track.durationMs) return;
 		if (track.behavior.type === 'looping') {
+			if (track.durationMs <= 0) return;
+			const playheadT = now - state.startWall;
+			if (playheadT < track.durationMs) return;
 			state.startWall = now - (playheadT % track.durationMs);
 			return;
 		}
-		if (track.behavior.type === 'transition-on-end') {
-			state.currentTrackId = track.behavior.toTrackId;
-			state.startWall = now - track.behavior.toTime;
-		}
+		// A zero-length `transition-on-end` track hands over immediately instead of
+		// stalling. At most one hand-over per tick, so a zero-length cycle cannot spin.
+		const isIdle = isQueueActive(state) && track.id === state.overlay.queue?.idleTrackId;
+		const elapsed = now - state.startWall;
+		const deadline = isIdle ? idleDeadlineMs(state) : track.durationMs;
+		if (elapsed < deadline) return;
+		this.gotoTrack(state, track.behavior.toTrackId, track.behavior.toTime, now);
 	}
 
 	private computeFrame(state: TileState): OverlayFrame | undefined {
@@ -200,11 +327,100 @@ export class PlaybackEngine {
 	}
 }
 
+/** The track named by the queue config, if the overlay has one. */
+function idleTrack(state: TileState): OverlayTrack | undefined {
+	const id = state.overlay.queue?.idleTrackId;
+	if (!id) return undefined;
+	return state.overlay.animation?.tracks.find(t => t.id === id);
+}
+
+/** Why a queue config cannot run, or `ok` when it can. */
+export type QueueConfigStatus = 'disabled' | 'ok' | 'no-idle-track' | 'invalid-idle-track' | 'chain-does-not-return';
+
+/**
+ * The single source of truth on whether a queue config is usable, shared by the
+ * engine — which falls open on anything but `ok`, so a broken config plays back
+ * exactly as it would without a queue — and by the Composer, which turns the
+ * same verdict into an inline warning. Pure: no engine state involved.
+ */
+export function validateQueueConfig(overlay: OverlayData): QueueConfigStatus {
+	const animation = overlay.animation;
+	if (!overlay.queue?.enabled || !animation) return 'disabled';
+	// Only a `transition-on-end` track has a hide phase to hand over to, so only
+	// those can act as the idle hold the queue shortens.
+	if (!animation.tracks.some(t => t.behavior.type === 'transition-on-end')) return 'no-idle-track';
+	const idle = animation.tracks.find(t => t.id === overlay.queue?.idleTrackId);
+	if (idle?.behavior.type !== 'transition-on-end') return 'invalid-idle-track';
+	if (!leadsBackToInitialTrack(animation, idle)) return 'chain-does-not-return';
+	return 'ok';
+}
+
+/**
+ * A queue only runs against a well-formed config. Anything else falls open —
+ * the tile behaves exactly as it would without a queue.
+ */
+function isQueueActive(state: TileState): boolean {
+	return validateQueueConfig(state.overlay) === 'ok';
+}
+
+/**
+ * The hide phase is whatever the idle track hands over to — it only counts as a
+ * queue if that chain ends back on the initial track, where the next queued
+ * trigger can be released. The walk is bounded by the number of tracks.
+ */
+function leadsBackToInitialTrack(animation: NonNullable<OverlayData['animation']>, idle: OverlayTrack): boolean {
+	let track: OverlayTrack | undefined = idle;
+	for (let hops = 0; hops < animation.tracks.length; hops++) {
+		if (track?.behavior.type !== 'transition-on-end') return false;
+		const nextId: string = track.behavior.toTrackId;
+		if (nextId === animation.initialTrackId) return true;
+		track = animation.tracks.find(t => t.id === nextId);
+		if (!track) return false;
+	}
+	return false;
+}
+
+/**
+ * Identifies the parts of an overlay the engine plays back. Cached per object:
+ * `mountTile` runs for every tile on every frame, so this must not re-serialize
+ * the animation each time. An object mutated in place keeps its cached
+ * signature — exactly the behaviour of the object-identity check it replaces.
+ * The Composer preview edits its overlay in place on the same client, so config
+ * changes do not restart the preview tile; only a settings round-trip, which
+ * rebuilds every `OverlayData`, produces a fresh object and remounts it.
+ */
+const signatureCache = new WeakMap<OverlayData, string>();
+
+function playbackSignature(overlay: OverlayData): string {
+	const cached = signatureCache.get(overlay);
+	if (cached !== undefined) return cached;
+	const signature = JSON.stringify({
+		tileBy: overlay.tileBy ?? null,
+		queue: overlay.queue ?? null,
+		animation: overlay.animation ?? null,
+	});
+	signatureCache.set(overlay, signature);
+	return signature;
+}
+
+function isSlotBusy(state: TileState): boolean {
+	return state.currentTrackId !== state.overlay.animation?.initialTrackId;
+}
+
+/** A pending trigger shortens the idle hold; it never lengthens it. */
+function idleDeadlineMs(state: TileState): number {
+	const track = idleTrack(state);
+	if (!track) return Number.POSITIVE_INFINITY;
+	if (state.queue.length === 0) return track.durationMs;
+	return Math.min(track.durationMs, state.overlay.queue?.queueIdleMs ?? track.durationMs);
+}
+
 function framesEqual(a: OverlayFrame | undefined, b: OverlayFrame | undefined): boolean {
 	if (a === b) return true;
 	if (!a || !b) return false;
 	if (a.activeTrackId !== b.activeTrackId) return false;
 	if (a.playheadT !== b.playheadT) return false;
+	if (a.triggerPayload !== b.triggerPayload) return false;
 	if (a.components.size !== b.components.size) return false;
 	for (const [id, frameA] of a.components) {
 		const frameB = b.components.get(id);
